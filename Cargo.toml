@@ -1,0 +1,24 @@
+[package]
+name = "lez-hello-world"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+description = "A working hello world on the Logos Execution Zone"
+
+# LEZ crates, pinned to the tag this was verified against. Upstream publishes
+# versions as git tags and offers no backward compatibility yet, so a floating
+# branch would break without warning.
+#
+# To develop against a local checkout instead, uncomment the patch block below.
+[dependencies]
+lee = { git = "https://github.com/logos-blockchain/logos-execution-zone.git", tag = "v0.3.0-rc1" }
+wallet = { git = "https://github.com/logos-blockchain/logos-execution-zone.git", tag = "v0.3.0-rc1" }
+program_loader_core = { git = "https://github.com/logos-blockchain/logos-execution-zone.git", tag = "v0.3.0-rc1" }
+
+anyhow = "1.0.98"
+tokio = { version = "1.50", features = ["macros", "rt-multi-thread"] }
+
+# [patch."https://github.com/logos-blockchain/logos-execution-zone.git"]
+# lee = { path = "../logos-execution-zone/lee/state_machine" }
+# wallet = { path = "../logos-execution-zone/lez/wallet" }
+# program_loader_core = { path = "../logos-execution-zone/lez/programs/program_loader/core" }

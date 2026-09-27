@@ -1,0 +1,22 @@
+# Bedrock, the base chain LEZ runs on top of. Brought up on its own:
+#
+#   docker compose up -d        # or ./scripts/up.sh, which also starts the LEZ services
+#
+# The LEZ sequencer and indexer run as native binaries rather than containers, so they
+# are not here. See scripts/up.sh.
+name: lez-hello-world
+
+services:
+  bedrock:
+    build:
+      context: ./docker
+      dockerfile: bedrock.Dockerfile
+      args:
+        NODE_VERSION: ${BEDROCK_VERSION:-0.3.0-rc.4}
+    image: lez-hello-world/bedrock:${BEDROCK_VERSION:-0.3.0-rc.4}
+    container_name: lez-bedrock
+    ports:
+      - "${BEDROCK_PORT:-18080}:18080"
+    # A devnet restarting mid-run would resume on a chain the LEZ services have already
+    # moved past, so fail visibly instead.
+    restart: "no"

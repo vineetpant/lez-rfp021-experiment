@@ -1,0 +1,4 @@
+# Matches the pin in logos-execution-zone, whose crates we depend on.
+[toolchain]
+channel = "1.98.1"
+profile = "default"
