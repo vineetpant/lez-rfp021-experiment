@@ -1,39 +1,28 @@
 # Notes for coding agents
 
-`CLAUDE.md` is the full context for this repo: what it is, the decisions taken and why,
-the traps that cost time, and the roadmap toward an RFP-021 implementation. **Read it
-first.** This file exists so agents that look for `AGENTS.md` by convention find their way
-there instead of rediscovering everything, and it is kept short on purpose — one copy of
-the facts, in `CLAUDE.md`, so the two cannot drift apart.
+Read `CLAUDE.md` first. It has the full picture: what this repo is, why it's built the way it
+is, what's known to be rough, and what's planned next. This file is deliberately short so the
+facts only live in one place and the two can't drift apart.
 
-In one paragraph: this is a verified-working hello world on LEZ (Logos Execution Zone),
-standalone — no `logos-execution-zone` checkout needed. It exists to be the foundation for
-a Logos RFP-021 grant proposal and implementation (trustless Ethereum state attestation).
-`guest/` holds the on-chain program and is where the attestation module will live.
+The short version: this is a working hello world on LEZ (Logos Execution Zone). It runs
+standalone — you don't need a copy of `logos-execution-zone`. It exists to become the base for
+a Logos RFP-021 implementation, and `guest/` is where that program will live.
 
-## Before you touch anything
+## Before you change anything
 
-- `./scripts/hello.sh` must still end in `PASS`. It asserts the greeting round-trips, so it
-  is a real regression test, not a smoke test. Run it after any change to `src/`, `guest/`,
-  `configs/` or `scripts/`.
-- Scripts are **bash**. `scripts/common.sh` relies on `BASH_SOURCE`, which zsh does not set;
-  sourcing it from zsh silently resolves every path one directory too high.
-- Do not export `RISC0_DEV_MODE` globally. risc0's build scripts hash the environment, so it
-  forces guest rebuilds on every cargo invocation. Use `DEV_MODE_ENV` from `common.sh`.
-- Version pins live in two places by design: `LEZ_TAG` in `scripts/common.sh` and
-  `BEDROCK_VERSION` in `docker-compose.yml`. Different repos, different cadences.
-- The comments explaining *why* a setting or call is the way it is are load-bearing. Several
-  guard against non-obvious behaviour; `README.md`'s Notes section collects them.
-
-## House rules
-
-- **No code changes without discussing them first and getting approval.** Propose the change
-  and why, then wait. Questions, reading code and read-only checks are fine.
-- **Commit messages are a single line.** No body, no file inventories. **Never add AI or
-  assistant attribution**, co-author trailers or "generated with" lines.
-- **Ask before installing toolchains, cloning repos, or downloading dependencies.** State
-  what each step touches and wait. Read-only checks need no announcement. Prefer reversible
-  moves over destructive ones.
-- **Verify before claiming.** "Should work" is not a result. If something is untested, say
-  so plainly rather than implying it passed.
-- Comments explain why, not what.
+- **Ask Vineet first.** Say what you want to change and why, then wait for approval. Reading
+  code, answering questions and read-only checks are fine.
+- **Commit messages are one line.** No body, no file lists. Never add AI attribution or
+  co-author trailers.
+- **Ask before installing or downloading anything**, and say what it touches.
+- `./scripts/hello.sh` must still end in `PASS`. It checks the greeting actually came back, so
+  it's a real test, not a smoke test. Run it after touching `src/`, `guest/`, `configs/` or
+  `scripts/`.
+- Scripts are bash, not zsh. `common.sh` uses `BASH_SOURCE`, which zsh doesn't set — source it
+  from zsh and every path lands one directory too high.
+- Don't export `RISC0_DEV_MODE` globally. It forces a guest rebuild on every cargo call. Use
+  `DEV_MODE_ENV` from `common.sh`.
+- The two version pins are separate on purpose: `LEZ_TAG` in `scripts/common.sh`,
+  `BEDROCK_VERSION` in `docker-compose.yml`.
+- Comments that explain why something is set a certain way are doing real work. Several of them
+  guard against behaviour you'd never guess. Don't tidy them away.

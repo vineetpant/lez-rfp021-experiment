@@ -1,21 +1,21 @@
 # Devnet configuration
 
-Copied from `logos-execution-zone`'s debug configs so this repo can run a devnet without
-that checkout. They describe a single-sequencer, single-validator local network and are
-**not** safe for anything else: the keys are public and the genesis balances imaginary.
+These came from `logos-execution-zone`'s debug configs, copied here so this repo can run a
+devnet without needing that checkout. They describe a one-sequencer, one-validator local
+network. Don't use them for anything else — the keys are public and the balances are made up.
 
-| File | From | Notes |
+| File | Copied from | What to know |
 |---|---|---|
-| `sequencer_config.json` | `lez/sequencer/service/configs/debug/` | `home: "."` — RocksDB lands in the working directory, so each service runs from its own state dir |
+| `sequencer_config.json` | `lez/sequencer/service/configs/debug/` | `home: "."`, so RocksDB lands wherever the service was started — hence the separate state dirs |
 | `indexer_config.json` | `lez/indexer/service/configs/debug/` | points at bedrock on `localhost:18080` |
 | `wallet/wallet_config.json` | `lez/wallet/configs/debug/` | points at the sequencer on `127.0.0.1:3040` |
 
-`sequencer_config.json` carries the genesis supply accounts. `scripts/common.sh` uses the
-first as the fee payer:
+`sequencer_config.json` also holds the genesis accounts. `scripts/common.sh` uses the first of
+them to pay transaction fees:
 
 ```
 CbgR6tj5kWx5oziiFptM7jMvrQeYY3Mzaao6ciuhSr2r   balance 10000000000000
 ```
 
-Both files name channel `0101…01`, which must match or the indexer reads a channel the
-sequencer never writes.
+The sequencer and indexer both name channel `0101…01`. If those ever stop matching, the indexer
+will sit there reading a channel nobody writes to.

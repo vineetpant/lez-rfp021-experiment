@@ -1,215 +1,217 @@
 # Context for Claude
 
-## What this repo is
+## What this is
 
-A working hello world on LEZ (Logos Execution Zone), built to serve as the **foundation for
-an RFP-021 proposal and implementation** — Logos' open grant for trustless Ethereum state
-attestation on LEZ.
+A working hello world on LEZ, built as the starting point for an RFP-021 proposal and
+implementation — the Logos grant for trustless Ethereum state attestation.
 
-It is deliberately more than a toy. The goal was to prove the whole toolchain end to end
-before committing to a grant proposal, and to leave behind a devnet and a program skeleton
-that the attestation module can grow inside.
+It's more than a toy on purpose. The point was to prove the whole toolchain works before
+committing to a grant proposal, and to leave behind a devnet and a program skeleton the
+attestation module can grow inside.
 
-**Status: verified green.** `reset.sh` → `up.sh` → `hello.sh` from genesis ends in `PASS`
-(macOS arm64, Docker 28.5.2, 2026-09-26). Standalone operation proven by renaming the
-`logos-execution-zone` checkout aside and repeating the cycle.
+It works: `reset.sh` → `up.sh` → `hello.sh` from genesis ends in `PASS`, on macOS arm64 with
+Docker 28.5.2, last checked 2026-09-26. Standalone too — that was checked by renaming the
+`logos-execution-zone` checkout out of the way and running the whole thing again.
 
-Read `README.md` for the user-facing explanation of how it all works — architecture, the
-two-programs model, and the Notes section on behaviour that is not obvious. This file is the
-project's memory: decisions, rationale, and what comes next.
+`README.md` explains how it all works for a human reader. This file is the project's memory:
+why things are the way they are, and what comes next.
+
+## Rules
+
+- **Don't change code without discussing it first and getting Vineet's approval.** Say what
+  you want to change and why, then wait. Applies to source, scripts, configs, Dockerfiles.
+  Questions, reading code and read-only checks are fine.
+- **Commit messages are one line.** No body, no bullet lists, no file inventories. If a
+  change needs a paragraph to explain it, it's probably too big for one commit. Never add AI
+  or assistant attribution, co-author trailers, or "generated with" lines — the history is
+  Vineet's.
+- **Ask before installing anything, cloning anything, or downloading dependencies.** Give a
+  short plan naming what each step touches, then wait. Read-only checks don't need
+  announcing. Prefer reversible moves — rename things aside rather than deleting them.
+- **Verify before claiming.** "Should work" isn't a result. Everything in the README's status
+  section came from a run that was actually watched.
+- Comments explain why, not what.
+- Nothing in this repo tracks problems in `logos-execution-zone`. Vineet handles that
+  separately, from a fork. There's a reference file for it at
+  `../logos-execution-zone-findings.md`, outside this repo. Don't bring it back in here.
 
 ## Commands
 
 ```bash
-./scripts/up.sh       # bedrock (Docker) + LEZ indexer and sequencer
-./scripts/hello.sh    # build, deploy, call, assert the greeting round-trips
+./scripts/up.sh       # bedrock in Docker, then the LEZ indexer and sequencer
+./scripts/hello.sh    # build, deploy, call, check the greeting came back
 ./scripts/down.sh     # stop, keep state
-./scripts/reset.sh    # stop and wipe state, back to genesis
-docker compose up -d  # bedrock alone
+./scripts/reset.sh    # stop and wipe back to genesis
+docker compose up -d  # bedrock on its own
 ```
 
-Scripts are bash and must run as bash — `scripts/common.sh` uses `BASH_SOURCE`, which zsh
-does not set, so sourcing it from zsh resolves every path one directory too high.
+Scripts are bash and need to run as bash. `common.sh` uses `BASH_SOURCE`, which zsh doesn't
+set, so sourcing it from a zsh prompt resolves every path one directory too high.
 
 ## Layout
 
 | Path | What |
 |---|---|
-| `src/lib.rs` | `deploy_program`: chunk the ELF, claim accounts, write the header |
-| `src/bin/hello_world.rs` | host-side runner: deploy, call, report |
-| `guest/` | **the on-chain program.** Own workspace, `riscv32im-risc0-zkvm-elf` only |
-| `docker/`, `docker-compose.yml` | bedrock from a published release binary |
-| `configs/` | vendored sequencer / indexer / wallet devnet configs |
+| `src/lib.rs` | `deploy_program` — chunk the ELF, claim accounts, write the header |
+| `src/bin/hello_world.rs` | the client: deploy, call, report |
+| `guest/` | the on-chain program. Own workspace, RISC-V only |
+| `docker/`, `docker-compose.yml` | bedrock, from a published release binary |
+| `configs/` | devnet configs for sequencer, indexer, wallet |
 | `scripts/` | devnet lifecycle |
 | `.devnet/` | everything the devnet writes. Gitignored. |
 
-`src/` and `guest/` are two programs for two machines: native client vs RISC-V contract.
-They cannot merge — different target, different toolchain, and the guest cannot depend on
-`tokio` or `wallet`. `guest/` is a separate workspace so a host build does not pull RISC-V
-code into its graph.
+`src/` and `guest/` are two programs for two machines — a native client and a RISC-V
+contract. They can't be merged: different target, different toolchain, and the guest can't
+depend on `tokio` or `wallet`. `guest/` is its own workspace so a host build doesn't drag
+RISC-V code into the graph. It builds inside a pinned container because a program's id is the
+hash of its ELF, so the build has to be reproducible.
 
-## Decisions and why
+## Why things are the way they are
 
-Each of these was a real fork in the road. The rationale matters more than the choice,
-because it says what would justify revisiting it.
+The reasoning matters more than the choice, because it tells you what would justify changing
+it.
 
-**Standalone via git tags, not a sibling checkout.** Crates come from
-`logos-execution-zone` pinned to `tag = "v0.3.0-rc1"`; service binaries are
-`cargo install --git … --tag … --root .devnet`. Upstream states it offers no backward
-compatibility yet, so a floating branch would rot silently. *Revisit when:* bumping to a
-newer LEZ tag — change `LEZ_TAG` in `scripts/common.sh` and the three git deps in
-`Cargo.toml` together. `Cargo.toml` has a commented `[patch]` block for local development.
+**Pinned to a git tag instead of a sibling checkout.** Crates come from
+`logos-execution-zone` at `tag = "v0.3.0-rc1"`, and the service binaries are
+`cargo install --git … --tag … --root .devnet`. They say outright that they don't offer
+backward compatibility yet, so tracking a branch would break things quietly. To bump: change
+`LEZ_TAG` in `scripts/common.sh` and the three git deps in `Cargo.toml` together. There's a
+commented-out `[patch]` block in `Cargo.toml` for working against a local checkout.
 
-**Bedrock from a published GitHub release.** `logos-execution-zone`'s own resolver builds the
-exact `logos-blockchain` revision its `Cargo.lock` pins, which is stricter but means a source
-build whenever no release matches that commit — several minutes, it needs the checkout, and
-here it was OOM-killed (exit 137) inside Docker's 9.4 GB limit. LEZ `v0.3.0-rc1` pins
-`c4c86be` (2026-09-24), one commit *newer* than release `0.3.0-rc.4` (`39916dc`,
-2026-09-23), and that commit touches the zone SDK. Vineet chose latest-release; tested, and
-it works. *Revisit when:* block acceptance or the channel misbehaves after a LEZ bump — that
-gap is the first suspect, and `just resolve-bedrock-node` in a checkout builds the exact
-revision.
+**Bedrock comes from a published release.** `logos-execution-zone` has a resolver that builds
+bedrock from the exact `logos-blockchain` revision its `Cargo.lock` names. That's stricter,
+and right if you need to reproduce a specific LEZ build, but it means compiling the node from
+source whenever no release matches that commit — several minutes, it needs the checkout, and
+here it got OOM-killed inside Docker's 9.4 GB limit. LEZ `v0.3.0-rc1` pins `c4c86be`
+(2026-09-24), one commit newer than release `0.3.0-rc.4` (`39916dc`, 2026-09-23), and that
+commit touches the zone SDK. Vineet chose the latest release anyway; it was tested and it
+works. If block acceptance or the channel ever misbehaves after a LEZ bump, check that gap
+first — `just resolve-bedrock-node` in a checkout builds the exact revision.
 
-**Two version pins in two places, on purpose.** `LEZ_TAG` in `scripts/common.sh`,
-`BEDROCK_VERSION` in `docker-compose.yml`. They come from different repos with independent
-release cadences; collapsing them into one variable would imply a coupling that does not
-exist.
+**Two version pins in two places, deliberately.** `LEZ_TAG` in `scripts/common.sh`,
+`BEDROCK_VERSION` in `docker-compose.yml`. Different repos, different release cadences.
+Collapsing them into one variable would imply a coupling that isn't there.
 
-**Our own `deploy_program`.** It is 25 lines — chunk the ELF, claim accounts, write the
-header — so this repo owns it rather than reaching into another checkout at build time.
+**We own `deploy_program`.** It's 25 lines — chunk the ELF, claim the accounts, write the
+header — so it lives here rather than reaching into someone else's checkout at build time.
 
-**`send_pub_tx_paid_by`, not a hand-rolled fee.** An ordinary program call is charged, so its
-message needs a named fee payer, that payer's nonce, and its signature. The wallet's
-higher-level call assembles selectors, nonces, fee declaration and witness set together;
-building the message directly means reproducing all of it, and a message without a fee is
-refused as `Incorrect fee`.
+**Fees go through `send_pub_tx_paid_by`.** An ordinary program call is charged, so the message
+needs a named payer, that payer's nonce, and its signature. The wallet's higher-level call
+assembles all of it. Building the message directly means reproducing the lot, and a message
+with no fee comes back as `Incorrect fee`.
 
-**`RISC0_DEV_MODE` is never exported globally.** It is part of the environment risc0's build
-scripts hash, so exporting it invalidates them and forces guest rebuilds on every cargo
-invocation. `common.sh` defines `DEV_MODE_ENV` and passes it only to processes that execute
-programs.
+**`RISC0_DEV_MODE` is never exported globally.** risc0's build scripts hash the environment,
+so exporting it invalidates them and rebuilds the guest on every cargo call. `common.sh`
+defines `DEV_MODE_ENV` and passes it only to processes that actually run programs.
 
-**All devnet state under `.devnet/`.** Earlier versions wrote RocksDB directories and a
-signing key into the user's `logos-execution-zone` checkout. Now a reset is one directory
+**All devnet state lives under `.devnet/`.** An earlier version scattered RocksDB directories
+and a signing key into Vineet's `logos-execution-zone` checkout. Now a reset is one directory
 removal and nothing leaks.
 
-**Scripts fail loudly.** Three bugs during development were *silent* failures, and all three
-looked like success:
+**Scripts fail loudly, and that's not decoration.** Three bugs during this build were silent
+failures, and all three looked like success:
 
-1. A `grep -q` swallowed `Error: Failed to find leader`, so a diagnosable transient looked
-   like an inexplicable five-minute hang.
-2. `set -e` plus `pipefail` killed the script when a `grep` after a fixed `sleep 5` matched
-   nothing — the read simply happened before the block executed.
-3. A leftover sequencer from an earlier layout kept ports 3040/8779 and **answered the
-   health check for a devnet that was not running**, producing a false `PASS` that was
-   briefly reported as proof of standalone operation. `down.sh`'s `pkill` pattern had been
-   narrowed to `.devnet/bin` paths and no longer matched it.
+1. A `grep -q` swallowed `Error: Failed to find leader`, so a transient that would have been
+   obvious looked like a five-minute hang with no explanation.
+2. `set -e` with `pipefail` killed a script when a `grep` after a fixed `sleep 5` matched
+   nothing — the read had simply happened before the block executed.
+3. A leftover sequencer from an older layout kept ports 3040 and 8779 and answered the health
+   check for a devnet that wasn't running, producing a false `PASS` that got reported as
+   proof of standalone operation. `down.sh`'s `pkill` pattern had been narrowed to
+   `.devnet/bin` paths and no longer matched it.
 
-Hence: retry with a deadline and print the failing output; poll for state rather than
-sleeping a guessed interval; and `up.sh` refuses to start when something already holds
-18080, 3040 or 8779, naming the process. Keep that property — it is exactly the failure
-class the RFP-021 submitter lives in (submit, await inclusion, read derived state), where a
-stale answer is worse than an error.
+So: retry with a deadline and print what failed, poll for state instead of sleeping a guess,
+and refuse to start when something already holds 18080, 3040 or 8779. Keep that. It's exactly
+the failure class the RFP-021 submitter lives in — submit, wait for inclusion, read derived
+state — where a stale answer is worse than an error.
 
-## Things worth knowing
+## Known rough edges
 
-`README.md`'s Notes section covers these for a reader; here are the ones most likely to cost
-time again:
-
-- `wallet account get --scope all` reports `Account is Uninitialized` **even when the shard
-  holds data**. Reads must name the program: `--scope <program-account-id>`.
-- `SUPPRESS_VERBOSE_PRINTS=1` or the wallet prints ~1.2 MB of raw transaction bytes per call.
-- Guest builds need `RISC0_DOCKER_CONTAINER_TAG=r0.1.91.1`; the default image's rustc is
-  older than this dependency tree needs.
-- A submitted transaction is only in the mempool. Its shard is unreadable until the carrying
-  block executes — poll, never sleep a guessed interval.
-- Indexer and sequencer both default RocksDB to `./rocksdb-<channel-id>` relative to the
-  working directory, so each needs its own directory.
+- **`down.sh` then `up.sh` doesn't work.** `docker compose down` removes the bedrock
+  container, and bedrock's chain state lives inside it, so the chain comes back empty while
+  `.devnet/state/sequencer` still holds a checkpoint for the old channel. The sequencer
+  refuses to resume and says so. `reset.sh` → `up.sh` is the working cycle. Proposed fix,
+  awaiting Vineet's approval: have `down.sh` use `docker compose stop` so the container
+  survives, leave `down` for `reset.sh`, and have `up.sh` catch the mismatch and point at
+  `reset.sh`.
+- `wallet account get --scope all` says the account is uninitialised even when its shard
+  holds data. Reads have to name the program.
+- Guest builds need `RISC0_DOCKER_CONTAINER_TAG=r0.1.91.1`. The default image's rustc is
+  older than this dependency tree wants.
+- `SUPPRESS_VERBOSE_PRINTS=1`, or the wallet prints about 1.2 MB of raw transaction bytes per
+  call.
+- A submitted transaction is only in the mempool. Its shard can't be read until the block
+  carrying it executes.
+- The sequencer and indexer both put their RocksDB in the working directory, so each needs
+  its own.
 - In a `logos-execution-zone` checkout, `cargo build` from the repo root can fail on
-  `risc0-sys v1.5.0`; use `-p` or build from the crate directory.
+  `risc0-sys v1.5.0`. Use `-p`, or build from the crate directory.
 
-## Working conventions here
+## Timings, for comparison later
 
-- **No code changes without discussing them first and getting approval.** Propose what you
-  intend to change and why, then wait. This applies to source, scripts, configs and
-  Dockerfiles — not to answering questions, reading code, or running read-only checks.
-- **Commit messages are a single line.** No body, no bullet lists, no file inventories, no
-  marketing. If a change seems to need a paragraph to justify it, the change is probably too
-  big for one commit. **Never add AI or assistant attribution**, co-author trailers, or
-  "generated with" lines — the history reads as the author's own work.
-- **Ask before installing toolchains, cloning repos, or pulling anything onto the machine.**
-  Give a short plan naming what each step touches first. Read-only checks are fine
-  unannounced. Prefer reversible moves — rename to `.broken-partial`, do not `rm -rf`.
-- **Verify before claiming.** "Should work" is not a result. Every claim in `README.md`'s
-  Status section came from an observed run, and the standalone claim came from actually
-  hiding the checkout.
-- Comments explain *why*, not what. Several settings here guard against non-obvious
-  behaviour and carry the reason, so nobody removes them as noise.
-- Prefer `logos-execution-zone`'s own pins (its `Justfile`, its `rust-toolchain.toml`) over
-  inventing versions.
+This project 4m39s cold; the LEZ service binaries about 8 minutes; the bedrock image about a
+minute; devnet healthy 10–20 seconds after start; deploy plus call about 25 seconds across
+five blocks. The guest itself runs in 1.6–2.2 ms in dev mode, which is the number to measure
+anything heavier against.
 
-## Where the background research lives
+## Background
 
-- **RFP-021 text:** `logos-co/rfp`, branch `rfp-021-wrapped-erc20` (misleading name), file
-  `RFPs/RFP-021-ethereum-state-attestation.md`. **Not on master** — still a draft, re-check
-  before citing.
-- The user's prior analysis is in two claude.ai artifacts: "LEZ and RFP-021 — working
-  reference" and "RFP-021: Ethereum State Attestation for LEZ". The first cites RFP commit
-  `ceac7e4` (2026-08-27) and is stale only in Supportability: docs moved in-repo, and the
-  team must now build its own module catalog from `logos-modules-release-base` and release
-  via `logos-modules-release-action`. Architecture and risk analysis still hold.
+The RFP-021 text is in `logos-co/rfp`, on branch `rfp-021-wrapped-erc20` — the branch name is
+misleading — as `RFPs/RFP-021-ethereum-state-attestation.md`. It's **not on master**, still a
+draft, so re-check it before citing anything.
 
-## Next moves — the path to RFP-021
+Vineet's earlier analysis lives in two claude.ai artifacts, "LEZ and RFP-021 — working
+reference" and "RFP-021: Ethereum State Attestation for LEZ". The first cites RFP commit
+`ceac7e4` (2026-08-27). It's still accurate except on supportability: docs moved in-repo, and
+the team now has to build its own module catalog from `logos-modules-release-base` and release
+through `logos-modules-release-action`. The architecture and risk analysis hold.
 
-Ordered by what de-risks the most per unit of effort.
+## What's next
 
-**1. BLS12-381 cycle spike.** The RFP's own central feasibility question is whether
-in-program aggregate signature verification fits LEZ's per-transaction cycle budget at the
-cadence sync-committee tracking requires. A throwaway guest doing one aggregate verify over
-512 public keys, cycle-counted, answers it either way — and if it does *not* fit, that
-measurement is itself a deliverable, with the specific component named. This repo now has a
-working guest pipeline to drop that program into; it belongs in `guest/src/bin/`. Baseline
-for comparison: `hello_world` executes in 1.6–2.2 ms in dev mode.
+Roughly in order of how much risk each one removes.
 
-**2. Measure the private path too.** The RFP wants wall-clock and peak memory on a mid-range
-laptop and on the lowest declared spec. Hashing is cheap per operation but repeats down the
-whole Merkle path; whether the total is interactive is unmeasured and determines whether the
-primitive is usable privately at all.
+**1. Cycle-count BLS12-381.** The RFP's own central question is whether in-program aggregate
+signature verification fits LEZ's per-transaction cycle budget at the cadence sync-committee
+tracking needs. A throwaway guest doing one aggregate verify over 512 public keys, with the
+cycles counted, answers it either way — and if it doesn't fit, that measurement is itself a
+deliverable, with the specific component named. The guest pipeline here is ready for it; it
+goes in `guest/src/bin/`. One thing to settle first: which BLS library. `blst`'s assembly
+won't cross-compile to `riscv32im`, and a pure-Rust arkworks path will compile but runs
+slower, which skews the number. That choice decides whether the measurement means anything.
 
-**3. Assess `r0vm-helios` reuse.** The single biggest schedule risk. Check whether its
-consensus verification (sync-committee tracking, handoffs, BLS verify, SSZ branches)
-separates cleanly from its EVM-target layer (proof wrapping, Solidity verifier, gas
-accounting), which LEZ discards entirely. Cleanly split means fork and retarget; entangled
-means extraction, and the estimate changes a lot. The RFP scopes this evaluation as a
-budgeted deliverable — reuse is expected to be assessed seriously, not mandated.
+**2. Measure the private path.** The RFP wants wall-clock and peak memory on a mid-range
+laptop and on the lowest spec the team declares. Hashing is cheap per operation but repeats
+all the way down the Merkle path, and nobody has measured whether the total is interactive.
+That answer decides whether the primitive is usable privately at all.
 
-**4. Design the instance model.** Checkpoint, chain config and tracked consensus state are
-all *accounts*, because programs are stateless. Note a finding from this work:
-`program-loader deploy --immutable` is documented as "self-declares as immutable **(not
-protocol-enforced)**", while the RFP demands immutability be structural. So the requirement
-is met by **not exposing a mutating instruction**, not by a flag — and the proposal should
-say so explicitly.
+**3. Check whether `r0vm-helios` can actually be reused.** The biggest schedule risk in the
+proposal. Does its consensus verification — sync-committee tracking, handoffs, BLS verify, SSZ
+branches — come apart cleanly from its EVM-target layer, which LEZ throws away entirely? A
+clean split means fork and retarget. Entangled means extraction, and the estimate moves a lot.
+The RFP budgets this evaluation as a deliverable; reuse is expected to be assessed seriously,
+not mandated. This is reading, not building.
 
-**5. Then the substance:** inclusion verification (MPT for accounts and storage, SSZ for
-beacon state, receipts trie for logs), the predicate interface, the statement identifier
+**4. Design the instance model.** The checkpoint, chain config and tracked consensus state are
+all accounts, because programs are stateless. Worth knowing from this work:
+`program-loader deploy --immutable` is documented as self-declared and explicitly *not*
+protocol-enforced, while the RFP wants immutability to be structural. So the requirement is
+met by not exposing a mutating instruction, not by setting a flag — and the proposal should
+say that outright.
+
+**5. Then the real work:** inclusion verification (MPT for accounts and storage, SSZ for
+beacon state, the receipts trie for logs), the predicate interface, the statement identifier
 consumers key a nullifier on, and the permissionless update submitter with its varied defer
-interval. Ethereum-side data must go through the **Logos Ethereum core module** — a hard
-platform dependency that shapes the off-chain half.
+interval. Anything touching Ethereum has to go through the Logos Ethereum core module — a hard
+platform dependency that shapes the whole off-chain half.
 
-### Constraints to price into the proposal
+Constraints to price in: Tier M, 8–12 weeks excluding audit lead time, MIT and Apache-2.0;
+docs in repo; your own module catalog from `logos-modules-release-base` released via
+`logos-modules-release-action`; and an independent third-party audit of the consensus and
+inclusion logic with the report published.
 
-- Tier M, 8–12 weeks excluding audit lead time, MIT and Apache-2.0.
-- Documentation **in repo** (changed from doc packets).
-- Publish modules in **your own catalog** built from `logos-modules-release-base`, released
-  via `logos-modules-release-action`. Both are newer than the user's notes.
-- Independent third-party audit of consensus and inclusion logic, report published.
+## Not done, on purpose
 
-## Deliberately not done
-
-- **Nothing about `logos-execution-zone` itself.** This repo is a standalone hello world to
-  be extended, not a place to track or fix anything upstream. Vineet handles that separately;
-  do not raise it here.
-- **No private-path demo.** `hello_world` runs publicly. The identical bytecode on a private
-  account would execute locally and produce a RISC0 proof (upstream: 30 s to 4 min). Worth
-  adding, since RFP-021's privacy floor is a hard requirement.
-- **Multi-sequencer / committee setup.** The devnet is one sequencer and one validator.
+- **No private-path demo.** `hello_world` runs publicly. The same bytecode on a private
+  account would run locally and produce a RISC0 proof — 30 seconds to 4 minutes. Worth adding,
+  since RFP-021 has a hard privacy floor.
+- **One sequencer, one validator.** No committee or multi-sequencer setup.
