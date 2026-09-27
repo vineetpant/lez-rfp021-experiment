@@ -132,10 +132,10 @@ stale answer is worse than an error.
 - **No code changes without discussing them first and getting approval.** Propose what you
   intend to change and why, then wait. This applies to source, scripts, configs and
   Dockerfiles — not to answering questions, reading code, or running read-only checks.
-- **Commit messages: short, plain and human.** A one-line summary, then a few lines of
-  what and why if it is not obvious. No walls of text, no bullet-point inventories of every
-  file, no marketing. **Never add AI or assistant attribution**, co-author trailers, or
-  "generated with" lines — the commit history reads as the author's own work.
+- **Commit messages are a single line.** No body, no bullet lists, no file inventories, no
+  marketing. If a change seems to need a paragraph to justify it, the change is probably too
+  big for one commit. **Never add AI or assistant attribution**, co-author trailers, or
+  "generated with" lines — the history reads as the author's own work.
 - **Ask before installing toolchains, cloning repos, or pulling anything onto the machine.**
   Give a short plan naming what each step touches first. Read-only checks are fine
   unannounced. Prefer reversible moves — rename to `.broken-partial`, do not `rm -rf`.
