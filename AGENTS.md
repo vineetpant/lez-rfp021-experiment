@@ -27,6 +27,11 @@ a Logos RFP-021 grant proposal and implementation (trustless Ethereum state atte
 
 ## House rules
 
+- **No code changes without discussing them first and getting approval.** Propose the change
+  and why, then wait. Questions, reading code and read-only checks are fine.
+- **Commit messages: short, plain and human.** A summary line, then a couple of lines of what
+  and why. No file-by-file inventories. **Never add AI or assistant attribution**, co-author
+  trailers or "generated with" lines.
 - **Ask before installing toolchains, cloning repos, or downloading dependencies.** State
   what each step touches and wait. Read-only checks need no announcement. Prefer reversible
   moves over destructive ones.

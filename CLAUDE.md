@@ -129,6 +129,13 @@ stale answer is worse than an error.
 
 ## Working conventions here
 
+- **No code changes without discussing them first and getting approval.** Propose what you
+  intend to change and why, then wait. This applies to source, scripts, configs and
+  Dockerfiles — not to answering questions, reading code, or running read-only checks.
+- **Commit messages: short, plain and human.** A one-line summary, then a few lines of
+  what and why if it is not obvious. No walls of text, no bullet-point inventories of every
+  file, no marketing. **Never add AI or assistant attribution**, co-author trailers, or
+  "generated with" lines — the commit history reads as the author's own work.
 - **Ask before installing toolchains, cloning repos, or pulling anything onto the machine.**
   Give a short plan naming what each step touches first. Read-only checks are fine
   unannounced. Prefer reversible moves — rename to `.broken-partial`, do not `rm -rf`.
@@ -202,10 +209,10 @@ platform dependency that shapes the off-chain half.
   replaced by this standalone crate. An earlier session left such a file in
   `logos-execution-zone/examples/program_deployment/src/bin/`; it is harmless but is not
   this repo's.
-- **No upstream PRs filed.** Ten findings, eight blocking, one a genuine code bug
-  (`Message::try_new` in every runner). Filing them before submitting a grant proposal is
-  strong positioning, and defect 8 is a fix they would likely take as-is. The user has not
-  yet decided; no fork has been touched.
+- **No upstream PRs filed, and they are out of scope here.** Ten findings, eight blocking,
+  one a genuine code bug (`Message::try_new` in every runner) — tabulated in `README.md`.
+  Vineet will raise these with upstream himself, separately: they belong neither to this
+  repo nor to the RFP-021 work. Do not start on them or offer again.
 - **No private-path demo.** `hello_world` runs publicly. The identical bytecode on a private
   account would execute locally and produce a RISC0 proof (upstream: 30 s to 4 min). Worth
   adding, since RFP-021's privacy floor is a hard requirement.
