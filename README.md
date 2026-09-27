@@ -113,17 +113,16 @@ and data availability, LEZ supplies execution.
 
 ### Why bedrock comes from a release
 
-Upstream resolves bedrock's binary from LEZ's own `Cargo.lock`, accepts a published release
-only when tag, checksum and commit all match, and source-builds otherwise — about eight
-minutes, and it needs the checkout. It source-builds more often than you would expect,
-because LEZ can pin a `logos-blockchain` commit newer than the newest release. It did for
-`v0.3.0-rc1`.
+`logos-execution-zone` ships a resolver that builds bedrock from the exact
+`logos-blockchain` revision its `Cargo.lock` pins. That is the stricter choice, and the right
+one for reproducing a particular LEZ build, but it compiles the node from source whenever no
+published release matches that commit — several minutes, and it needs the checkout.
 
-So this uses the latest release instead, which makes the image self-contained and quick. The
-node is then *slightly behind* the revision LEZ was tested against: for `v0.3.0-rc1` that is
-one commit, and it works. If a future LEZ bump breaks the channel or the sequencer starts
-rejecting blocks, suspect that first, and use upstream's `just resolve-bedrock-node` to
-build the exact pinned revision.
+This image takes the latest published release instead, which keeps it self-contained and
+quick. The node can then sit slightly behind the revision LEZ pins: for `v0.3.0-rc1` it is
+one commit behind, and it works. If a later LEZ bump upsets the channel or block acceptance,
+that gap is the first thing to check, and `just resolve-bedrock-node` in a checkout builds
+the exact revision.
 
 Version pins live in two places, deliberately, because they come from different repos:
 `LEZ_TAG` in `scripts/common.sh`, and `BEDROCK_VERSION` in `docker-compose.yml` (override
@@ -171,34 +170,36 @@ funnelling every call through one shared account serialises itself.
 This program never checks `is_authorized`, so anyone may append to its shard on any account.
 Fine for a greeting, wrong for anything holding value.
 
-## Upstream defects this routes around
+## Notes
 
-Upstream's `examples/program_deployment` tutorial cannot be followed to completion as
-written. Ten defects stand between a fresh checkout and a greeting; eight stop you outright,
-and one is a code bug rather than a documentation problem.
+A few things about this stack are not obvious, and each is load-bearing somewhere in
+`scripts/` or `src/`.
 
-| # | Defect |
-|---|---|
-| 1 | `just run-bedrock` runs `(cd .. && just resolve-bedrock-node)`, and no Justfile exists above the repo root, so it fails with `no justfile found` |
-| 2 | `cargo risczero build` as documented uses a guest-builder image carrying rustc 1.88.0-dev, while `enum-ordinalize` and `ruint` need 1.89/1.90 — fixed by `RISC0_DOCKER_CONTAINER_TAG=r0.1.91.1`, the tag upstream's own Justfile pins |
-| 3 | The README says `cargo install --path wallet`; the crate is at `lez/wallet` |
-| 4 | Indexer and sequencer both default RocksDB to `./rocksdb-<channel-id>`; started from the repo root as documented, the second dies on the first's lock |
-| 5 | `just run-wallet` sets `LEE_WALLET_HOME_DIR=$(pwd)/configs/debug`, a path that does not exist |
-| 6 | `wallet deploy-program <bin>` does not exist; it is `wallet program-loader deploy --elf … --header … --segments … --payer …` |
-| 7 | The runners take a third argument, a funded fee payer, that the README never mentions |
-| 8 | **Every upstream runner builds its message with `Message::try_new`**, documented as fee-exempt and "correct for system transactions". An ordinary program call is charged, so all of them are rejected with `InvalidParams: "Incorrect fee"`. Use `WalletCore::send_pub_tx_paid_by` |
-| 9 | `wallet account get --scope all` reports `Account is Uninitialized` even when the shard holds data — and the tutorial tells you to use `all`. Reads must name the program |
-| 10 | The example README documents a `ShardStateDiff` / `ProgramOutput::new(…).write()` API; the guest actually uses `run_program(plan, apply)` |
+**Reads must name the program.** `wallet account get --scope all` reports
+`Account is Uninitialized` even when a shard holds data. Pass the program's account id as the
+scope instead.
 
-Three more things that cost time without being bugs:
+**A submitted transaction is only in the mempool.** Its shard stays unreadable until the
+block carrying it executes, so `hello.sh` polls for the value rather than sleeping a fixed
+interval.
 
-- **`SUPPRESS_VERBOSE_PRINTS=1`.** Without it the wallet prints roughly 1.2 MB of raw
-  transaction bytes per call.
-- **Never export `RISC0_DEV_MODE` globally.** It is part of the environment risc0's build
-  scripts hash, so toggling it invalidates them and forces guest rebuilds. The scripts pass
-  it only to processes that execute programs.
-- **Bedrock source builds can be OOM-killed** (exit 137) when cargo links many crates at
-  once inside Docker's memory limit. Avoided here by not source-building at all.
+**Set `SUPPRESS_VERBOSE_PRINTS=1`.** Without it the wallet prints roughly 1.2 MB of raw
+transaction bytes per call.
+
+**Do not export `RISC0_DEV_MODE` globally.** It is part of the environment risc0's build
+scripts hash, so exporting it invalidates them and rebuilds the guest on every cargo
+invocation. The scripts pass it only to processes that execute programs.
+
+**Guest builds pin the builder image.** `RISC0_DOCKER_CONTAINER_TAG=r0.1.91.1`, the tag
+`logos-execution-zone`'s own `Justfile` uses. The default image's rustc is older than this
+dependency tree needs.
+
+**Each service needs its own directory.** The sequencer and indexer both put their RocksDB in
+the working directory, so running two from one place means the second finds the first's lock.
+
+**A charged transaction needs a fee declaration.** The payer is named explicitly, its nonce
+goes into the message, and it signs; `WalletCore::send_pub_tx_paid_by` assembles all of that.
+Freshly claimed accounts hold no balance, so something funded has to pay.
 
 ## Reading state by hand
 

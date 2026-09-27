@@ -50,13 +50,10 @@ async fn main() -> anyhow::Result<()> {
     // by an ordinary witness signature.
     let accounts = vec![AccountIdentity::PublicNoSign(target).select_program_shard(program)];
 
-    // `send_pub_tx_paid_by` assembles the shard selectors, the nonces (including the
-    // payer's), the fee declaration and the witness set.
-    //
-    // Building the message by hand with `Message::try_new` — as upstream's own examples
-    // do — produces a fee-exempt message, which the sequencer rejects with
-    // `InvalidParams: "Incorrect fee"`. Fee exemption is for system transactions; an
-    // ordinary program call is charged.
+    // An ordinary program call is charged, so the message needs a fee declaration: a named
+    // payer, that payer's nonce, and its signature. `send_pub_tx_paid_by` assembles all of
+    // it -- shard selectors, nonces, fee and witness set. Building the message by hand means
+    // reproducing that, and a message without a fee is refused as `Incorrect fee`.
     let tx = wallet_core
         .send_pub_tx_paid_by(
             accounts,

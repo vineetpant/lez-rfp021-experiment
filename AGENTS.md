@@ -22,8 +22,8 @@ a Logos RFP-021 grant proposal and implementation (trustless Ethereum state atte
   forces guest rebuilds on every cargo invocation. Use `DEV_MODE_ENV` from `common.sh`.
 - Version pins live in two places by design: `LEZ_TAG` in `scripts/common.sh` and
   `BEDROCK_VERSION` in `docker-compose.yml`. Different repos, different cadences.
-- The comments marking workarounds for upstream defects are load-bearing. Each says why it
-  exists so it does not get tidied away as noise. `README.md` has the numbered table.
+- The comments explaining *why* a setting or call is the way it is are load-bearing. Several
+  guard against non-obvious behaviour; `README.md`'s Notes section collects them.
 
 ## House rules
 

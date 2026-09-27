@@ -14,9 +14,9 @@ that the attestation module can grow inside.
 (macOS arm64, Docker 28.5.2, 2026-09-26). Standalone operation proven by renaming the
 `logos-execution-zone` checkout aside and repeating the cycle.
 
-Read `README.md` for the user-facing explanation of how it all works — architecture,
-the two-programs model, the upstream defect table. This file is the project's memory:
-decisions, rationale, and what comes next.
+Read `README.md` for the user-facing explanation of how it all works — architecture, the
+two-programs model, and the Notes section on behaviour that is not obvious. This file is the
+project's memory: decisions, rationale, and what comes next.
 
 ## Commands
 
@@ -60,29 +60,29 @@ compatibility yet, so a floating branch would rot silently. *Revisit when:* bump
 newer LEZ tag — change `LEZ_TAG` in `scripts/common.sh` and the three git deps in
 `Cargo.toml` together. `Cargo.toml` has a commented `[patch]` block for local development.
 
-**Bedrock from a published GitHub release, not upstream's resolver.** Upstream resolves the
-exact `logos-blockchain` revision LEZ's `Cargo.lock` pins and source-builds when no release
-matches — 8 minutes, needs the checkout, and it was OOM-killed (exit 137) at Docker's 9.4 GB
-limit. LEZ `v0.3.0-rc1` pins `c4c86be` (2026-09-24), one commit *newer* than the newest
-release `0.3.0-rc.4` (`39916dc`, 2026-09-23), and that commit touches the zone SDK. Tested
-anyway on the user's instruction that latest is fine: it works. *Revisit when:* the
-sequencer starts rejecting blocks or the channel misbehaves after a LEZ bump — that
-mismatch is the first suspect, and `just resolve-bedrock-node` in the upstream checkout
-builds the exact revision.
+**Bedrock from a published GitHub release.** `logos-execution-zone`'s own resolver builds the
+exact `logos-blockchain` revision its `Cargo.lock` pins, which is stricter but means a source
+build whenever no release matches that commit — several minutes, it needs the checkout, and
+here it was OOM-killed (exit 137) inside Docker's 9.4 GB limit. LEZ `v0.3.0-rc1` pins
+`c4c86be` (2026-09-24), one commit *newer* than release `0.3.0-rc.4` (`39916dc`,
+2026-09-23), and that commit touches the zone SDK. Vineet chose latest-release; tested, and
+it works. *Revisit when:* block acceptance or the channel misbehaves after a LEZ bump — that
+gap is the first suspect, and `just resolve-bedrock-node` in a checkout builds the exact
+revision.
 
 **Two version pins in two places, on purpose.** `LEZ_TAG` in `scripts/common.sh`,
 `BEDROCK_VERSION` in `docker-compose.yml`. They come from different repos with independent
 release cadences; collapsing them into one variable would imply a coupling that does not
 exist.
 
-**Our own `deploy_program` rather than depending on upstream's example crate.** It is 25
-lines, and the alternative was copying a loose `.rs` into the user's checkout at build time,
-which an earlier iteration did and which was rightly criticised.
+**Our own `deploy_program`.** It is 25 lines — chunk the ELF, claim accounts, write the
+header — so this repo owns it rather than reaching into another checkout at build time.
 
-**`send_pub_tx_paid_by`, not a hand-rolled fee.** Upstream's runners build messages with the
-fee-exempt `Message::try_new` and are all rejected with `InvalidParams: "Incorrect fee"`.
-The wallet's higher-level call assembles selectors, nonces, fee declaration and witness set
-correctly; reimplementing that by hand would duplicate logic that already exists and drifts.
+**`send_pub_tx_paid_by`, not a hand-rolled fee.** An ordinary program call is charged, so its
+message needs a named fee payer, that payer's nonce, and its signature. The wallet's
+higher-level call assembles selectors, nonces, fee declaration and witness set together;
+building the message directly means reproducing all of it, and a message without a fee is
+refused as `Incorrect fee`.
 
 **`RISC0_DEV_MODE` is never exported globally.** It is part of the environment risc0's build
 scripts hash, so exporting it invalidates them and forces guest rebuilds on every cargo
@@ -111,21 +111,22 @@ sleeping a guessed interval; and `up.sh` refuses to start when something already
 class the RFP-021 submitter lives in (submit, await inclusion, read derived state), where a
 stale answer is worse than an error.
 
-## Traps that cost real time
+## Things worth knowing
 
-`README.md` has the full ten-defect table. The ones most likely to bite again:
+`README.md`'s Notes section covers these for a reader; here are the ones most likely to cost
+time again:
 
 - `wallet account get --scope all` reports `Account is Uninitialized` **even when the shard
   holds data**. Reads must name the program: `--scope <program-account-id>`.
 - `SUPPRESS_VERBOSE_PRINTS=1` or the wallet prints ~1.2 MB of raw transaction bytes per call.
-- Guest builds need `RISC0_DOCKER_CONTAINER_TAG=r0.1.91.1`; the default image's rustc is too
-  old for the dependency tree.
+- Guest builds need `RISC0_DOCKER_CONTAINER_TAG=r0.1.91.1`; the default image's rustc is
+  older than this dependency tree needs.
 - A submitted transaction is only in the mempool. Its shard is unreadable until the carrying
   block executes — poll, never sleep a guessed interval.
 - Indexer and sequencer both default RocksDB to `./rocksdb-<channel-id>` relative to the
   working directory, so each needs its own directory.
-- `cargo build` from the upstream repo root fails on `risc0-sys v1.5.0`; use `-p` or build
-  from the crate directory. Not diagnosed further — it was a side quest.
+- In a `logos-execution-zone` checkout, `cargo build` from the repo root can fail on
+  `risc0-sys v1.5.0`; use `-p` or build from the crate directory.
 
 ## Working conventions here
 
@@ -142,10 +143,10 @@ stale answer is worse than an error.
 - **Verify before claiming.** "Should work" is not a result. Every claim in `README.md`'s
   Status section came from an observed run, and the standalone claim came from actually
   hiding the checkout.
-- Comments explain *why*, not what. The upstream-defect workarounds each carry the reason
-  they exist, so nobody removes them as noise.
-- Prefer upstream's own pins (its `Justfile`, its `rust-toolchain.toml`) over inventing
-  versions.
+- Comments explain *why*, not what. Several settings here guard against non-obvious
+  behaviour and carry the reason, so nobody removes them as noise.
+- Prefer `logos-execution-zone`'s own pins (its `Justfile`, its `rust-toolchain.toml`) over
+  inventing versions.
 
 ## Where the background research lives
 
@@ -205,14 +206,9 @@ platform dependency that shapes the off-chain half.
 
 ## Deliberately not done
 
-- **No `run_hello_world_paid.rs` in the upstream checkout anymore** — that approach was
-  replaced by this standalone crate. An earlier session left such a file in
-  `logos-execution-zone/examples/program_deployment/src/bin/`; it is harmless but is not
-  this repo's.
-- **No upstream PRs filed, and they are out of scope here.** Ten findings, eight blocking,
-  one a genuine code bug (`Message::try_new` in every runner) — tabulated in `README.md`.
-  Vineet will raise these with upstream himself, separately: they belong neither to this
-  repo nor to the RFP-021 work. Do not start on them or offer again.
+- **Nothing about `logos-execution-zone` itself.** This repo is a standalone hello world to
+  be extended, not a place to track or fix anything upstream. Vineet handles that separately;
+  do not raise it here.
 - **No private-path demo.** `hello_world` runs publicly. The identical bytecode on a private
   account would execute locally and produce a RISC0 proof (upstream: 30 s to 4 min). Worth
   adding, since RFP-021's privacy floor is a hard requirement.
