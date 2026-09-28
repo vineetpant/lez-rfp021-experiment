@@ -110,6 +110,36 @@ fn apply(greeting: Vec<u8>, pre_data: &ShardData) -> Option<Vec<u8>> {
 transactions in parallel. `apply` does the work. Note it never checks whether the caller was
 authorised — fine for a greeting, wrong for anything holding value.
 
+## Who does what
+
+| | In rollup terms | Notes |
+|---|---|---|
+| **bedrock** | the L1 — settlement and data availability | a full chain with its own consensus, validators and staking |
+| **LEZ** | the rollup | has blocks and state, but borrows ordering and finality from bedrock |
+| **sequencer** | sequencer, executor and batch poster in one | stakes into bedrock to earn the right to post; a committee shares turns, this devnet runs one |
+| **indexer** | the derivation pipeline | rebuilds LEZ state by reading bedrock back, rather than by gossip |
+| **wallet** | user client and signer | not part of consensus |
+
+Bedrock's validators and the LEZ sequencer committee are different sets of people. The
+sequencer stakes *into* bedrock; it doesn't validate it.
+
+## What happens when you send a transaction
+
+1. The **wallet** builds the message — program, accounts, nonces, fee — signs it, and sends it
+   to the sequencer on `:3040`.
+2. The **sequencer** checks the fee, signatures and nonces, then queues it.
+3. The **sequencer executes** the program's RISC-V code, in about 2 ms, and works out the new
+   state.
+4. It **batches** the result into a LEZ block — up to 20 transactions, 1 MiB, or 15 seconds.
+5. It **posts that block into bedrock** as an inscription on channel `0101…01`.
+6. **Bedrock** orders and finalises it through its own consensus. LEZ gets no say.
+7. The **indexer** polls bedrock every second, reads the channel, rebuilds the LEZ blocks and
+   serves reads on `:8779`.
+
+Execution happens at step 3, before anything is posted. So the sequencer knows the answer
+early; bedrock only later agrees on where it sits in the order. A LEZ transaction is as final
+as the bedrock transaction carrying it.
+
 ## Looking around yourself
 
 ```bash
