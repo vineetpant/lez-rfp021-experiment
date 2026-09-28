@@ -123,6 +123,26 @@ authorised — fine for a greeting, wrong for anything holding value.
 Bedrock's validators and the LEZ sequencer committee are different sets of people. The
 sequencer stakes *into* bedrock; it doesn't validate it.
 
+## Zones, sequencers and validators
+
+**A zone is a channel on bedrock plus the state behind it.** One bedrock can host several.
+`logos-execution-zone` ships demos that boot two zones on a single bedrock and pass messages
+between them — the receiving zone's indexer re-derives and verifies the message before acting
+on it — plus a bridge that locks a balance on one zone and mints a wrapped token on the other.
+
+**Sequencers work as a committee, one per channel.** Membership comes from bedrock: stake
+enough and your key is accredited. Turns rotate round-robin. Both the stake threshold and the
+turn timing are fixed at genesis in `channel_params`, and every node on the channel has to
+agree on them. A sequencer can unstake and leave after a delay, and misbehaviour — posting
+something that isn't a valid block, say — is slashable against that bedrock stake.
+
+This devnet runs a single sequencer, so there is no rotation to watch. Upstream's own devnet
+runs four on one channel.
+
+**Bedrock's validators are a separate set.** They run bedrock's proof-of-stake consensus and
+finalise the inscriptions LEZ posts, without looking inside them. Sequencers stake into
+bedrock but take no part in validating it.
+
 ## What happens when you send a transaction
 
 1. The **wallet** builds the message — program, accounts, nonces, fee — signs it, and sends it
