@@ -160,6 +160,52 @@ Execution happens at step 3, before anything is posted. So the sequencer knows t
 early; bedrock only later agrees on where it sits in the order. A LEZ transaction is as final
 as the bedrock transaction carrying it.
 
+## Deploying a program
+
+Two different ids are involved, and they come from different places.
+
+**The ImageID** is the hash of the compiled ELF, worked out at build time. Identical source and
+toolchain always give the same hash. Ours is `c75ffd03…`.
+
+**The program id is an account id** — the "header" account the program gets written into. Your
+wallet picks it locally, before the deploy transaction is even built. That's the id you call
+afterwards.
+
+Deploying writes the ELF into accounts: 96 KiB per segment, one account each, write-once, then
+a header account pointing at the chain of them. `program_loader` then recomputes the ImageID by
+walking those stored segments, so the chain never takes your word for what you deployed.
+
+Consequences worth knowing:
+
+- **Deploy once, call forever.** The program holds no state, so one deployment serves every
+  account. `hello.sh` redeploys each run only because it's a self-contained demo.
+- **Two deployments of identical code are two separate programs**, with separate shards. Same
+  ImageID, different header account.
+- **There's no registry.** Nothing maps a name to a program. You record the header id and
+  publish it; callers hardcode or configure it.
+
+## Client and program, side by side
+
+| | The client (`src/`) | The program (`guest/`) |
+|---|---|---|
+| Chooses | which accounts to touch, what the instruction says, who pays | nothing — it reacts |
+| Knows | your keys, the sequencer's address | its own id, the accounts it was handed, whether each was authorised |
+| Can't | execute anything itself | reach the network, a file, or a clock |
+
+The runtime calls the program **twice**: `plan` first, to declare which accounts will be
+touched, then `apply` to produce the new bytes. The declaration is what lets the chain run
+unrelated transactions in parallel.
+
+Three things the program does *not* get:
+
+- **No `msg.sender`.** `caller_account_id` is the calling *program* in a chained call, and
+  `None` for a direct one.
+- **No owner and no deployer.** Nothing records who paid to deploy it. An admin pattern means
+  storing an account id in your own shard and checking it yourself.
+- **No say in authorisation.** The runtime verifies signatures and hands the program a boolean
+  per account. Whether that boolean matters is the program's choice — ours ignores it, which is
+  why anyone can append to its shard on any account.
+
 ## Looking around yourself
 
 ```bash
@@ -181,6 +227,40 @@ Two things that will trip you up:
   uninitialised even when the data is right there. Pass the program's id instead.
 - **A submitted transaction isn't a finished one.** It sits in the mempool until a block
   carries it, so give it a moment before reading, or poll like `hello.sh` does.
+
+## Where this goes next
+
+This repo exists to become an RFP-021 module — trustless Ethereum state attestation. Sketching
+how that lands in the model above, since it's what the shape is for:
+
+**Deployment.** The attestation program is deployed once through `program_loader`, like this
+one, and its header id is published. Consumers hardcode it. RFP-021 is explicit that the
+verification logic must not be reachable through a program id kept in mutable state — whoever
+controls that pointer could otherwise swap in a module that attests to anything. Upgrading
+means deploying a new program and having consumers migrate on purpose.
+
+**An instance is a set of accounts.** Programs are stateless, so the tracked Ethereum
+checkpoint, the chain config and the current sync-committee state all live in accounts, likely
+program-derived ones. One deployed program can back a mainnet instance and a testnet instance
+at once; only the accounts differ.
+
+**Immutability is structural.** The checkpoint is the single trust input, set when the instance
+is initialised. Nothing may rewrite it afterwards — and since there's no owner and no admin
+unless a program invents one, the way to guarantee that is simply never to write an instruction
+that mutates it. Absent code can't be called. Note that `program-loader deploy --immutable` is
+a self-declaration and explicitly *not* protocol-enforced, so it isn't the mechanism.
+
+**Two kinds of call.** Anyone may advance the consensus state — one public transaction per
+sync-committee period, permissionless, paid by whoever submits it. Separately, a consuming
+program asks for an attestation: it supplies a header, the branches and Merkle proofs, and a
+predicate, and gets back a proven statement plus an identifier it can key a nullifier on. The
+expensive consensus check happens once per period and is shared; the cheap inclusion check
+happens inside the consumer's own transaction, so verification and the action it authorises
+can't come apart.
+
+For comparison, some programs *are* built into the node with fixed ids — the fee, clock, bridge
+and sequencer-stake programs work that way. RFP-021 doesn't ask for that; it describes a shared
+module deployed once, which consumers converge on.
 
 ## Status
 
