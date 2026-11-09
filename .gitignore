@@ -2,3 +2,5 @@
 /guest/target
 /lc/guest/target
 /.devnet
+target-types/
+lc/guest/target/

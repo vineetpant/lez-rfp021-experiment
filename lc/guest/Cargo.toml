@@ -1,0 +1,41 @@
+# The light-client program. Its own workspace: it only ever builds for riscv32im-risc0-zkvm-elf,
+# and the patches below must not reach the host build.
+[workspace]
+
+[package]
+name = "eth-lc-guest"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[[bin]]
+name = "eth_lc"
+path = "src/bin/eth_lc.rs"
+
+[dependencies]
+eth-lc-types = { path = "../types" }
+lee_core = { git = "https://github.com/logos-blockchain/logos-execution-zone.git", tag = "v0.4.0-rc1" }
+borsh = { version = "1.5", features = ["derive"] }
+# Required at link time by the guest entry point, and `unstable` for the accelerators.
+risc0-zkvm = { version = "=3.0.5", default-features = false, features = ["std", "unstable"] }
+
+[package.metadata.cargo-machete]
+ignored = ["risc0-zkvm"]
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+panic = "abort"
+
+# RISC Zero's accelerated forks, the set r0vm-helios established for Helios: BLS12-381 for the
+# sync-committee signature, SHA-256 for SSZ (both versions in the tree), Keccak for
+# Merkle-Patricia proofs. `ethereum_hashing` is patched as Helios itself patches it, to hash
+# with `sha2` instead of `ring`, which doesn't build for the zkVM.
+[patch.crates-io]
+bls12_381 = { git = "https://github.com/risc0/zkcrypto-bls12_381", tag = "bls12_381/v0.8.0-risczero.1" }
+sha2-v0-9-9 = { git = "https://github.com/risc0/RustCrypto-hashes", package = "sha2", tag = "sha2-v0.9.9-risczero.0" }
+sha2-v0-10-9 = { git = "https://github.com/risc0/RustCrypto-hashes", package = "sha2", tag = "sha2-v0.10.9-risczero.0" }
+tiny-keccak = { git = "https://github.com/risc0/tiny-keccak", tag = "tiny-keccak/v2.0.2-risczero.0" }
+ethereum_hashing = { git = "https://github.com/ncitron/ethereum_hashing", rev = "7ee70944ed4fabe301551da8c447e4f4ae5e6c35" }

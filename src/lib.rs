@@ -6,6 +6,8 @@
 //! a header account that points at that segment chain. The header's account id is what
 //! callers use to address the program afterwards.
 
+pub mod chain;
+
 use lee::AccountId;
 use program_loader_core::MAX_SEGMENT_DATA_LEN;
 use wallet::{WalletCore, WalletSequencerClient, program_facades::program_loader::ProgramLoader};
