@@ -1,7 +1,6 @@
 # RFP-021 proposal: Trustless Ethereum State Attestation for LEZ
 
-Status: design final. The build on Helios is in progress; every figure marked ⟨measure⟩ is
-filled from its runs on a LEZ `v0.4.0-rc1` node before submission. The team fields marked TODO
+Status: design final. Every figure marked ⟨measure⟩ is filled from the node runs on a LEZ `v0.4.0-rc1` node before submission. The team fields marked TODO
 are still to fill. The deadline is 10 Nov 2026 (logos-co/rfp README, DD/MM/YY).
 
 Sections follow the fields of the RFP proposal form (`.github/ISSUE_TEMPLATE/proposal.yml`).
@@ -11,7 +10,7 @@ Every number here is one of:
 - **protocol**: read from LEZ `v0.4.0-rc1` or the Ethereum specification, with the source;
 - **derived**: arithmetic from other numbers, shown;
 - **measured**: from our own runs, logged in [results.md](results.md);
-- **⟨measure⟩**: not yet run on the Helios build.
+- **⟨measure⟩**: not yet run on the node.
 
 TODO before submission:
 
@@ -30,10 +29,13 @@ fact holds on finalized Ethereum, verified by LEZ itself, with no committee or o
 
 We build that primitive as one LEZ 0.4 program.
 
-- **The consensus logic is Helios's.** The program verifies light-client updates with Helios
-  `consensus-core` (a16z), the Ethereum light client whose consensus logic zkSecurity audited
-  inside `r0vm-helios` on RISC Zero, the zkVM LEZ runs on. That is the RFP's R.6 asked of us:
-  integrate a mature, audited implementation instead of writing a new one (section 11).
+- **The verifier follows the consensus specs, runs on `blst`, and is checked against Helios.**
+  It implements the light-client protocol (the specs' validate and apply steps); BLS signatures
+  go through `blst`, with RISC Zero's accelerator. Helios `consensus-core` (a16z), the light
+  client whose consensus logic zkSecurity audited inside `r0vm-helios`, is the reference: on
+  recorded mainnet and on every adversarial case, both reach the same verdict and the same store.
+  Running Helios itself inside the program costs 3.5× the cycles, all of it in its BLS library
+  (measured; R.6, section 11).
 - **Updates are proven, not split.** An update carries the sync-committee BLS12-381 aggregate,
   the finality branch and the committee handoff. It runs on a private actor of the program,
   proven by whoever submits it, and lands as **one** transaction. LEZ meters a private
@@ -65,7 +67,7 @@ We build that primitive as one LEZ 0.4 program.
 
 | | Operator's light client | On-chain verifier and state |
 |---|---|---|
-| What | Logos Ethereum core module (Nimbus `libverifproxy`) on the operator's machine | The program's verifier (Helios `consensus-core`, compiled into its image) plus its instance and record accounts |
+| What | Logos Ethereum core module (Nimbus `libverifproxy`) on the operator's machine | The program's verifier, compiled into its image, plus its instance and record accounts |
 | Job | Follow Ethereum, fetch updates, committee keys and inclusion proofs | Decide what LEZ accepts as a finalized Ethereum header |
 | Trusted by LEZ | No. It is untrusted data delivery. | Yes. Every LEZ node checks the proof against the image. |
 
@@ -102,8 +104,8 @@ instances (mainnet, Sepolia, Hoodi) coexist under one program (F.14, F.15).
 
 ### 3. Update: what has to be proven
 
-An update must show all of the following, as Helios checks them (`verify_update`,
-`verify_finality_update`):
+An update must show all of the following, as the consensus specs' light-client protocol defines
+them (`validate_light_client_update`):
 
 1. An attested header in the store's period, or the next one once the next committee is known.
 2. The sync-committee aggregate signature over it, under the fork's domain.
@@ -111,16 +113,18 @@ An update must show all of the following, as Helios checks them (`verify_update`
 4. The execution-payload branch of each header (Gloas: the execution block hash).
 5. At a handoff, the next-committee branch inside the attested state.
 
-On top of Helios, the program enforces three things itself:
+On top of the protocol, the program enforces three things:
 
-- **At least 2/3 of the committee signed.** Helios verifies an update with a single signer and,
-  below 2/3, skips applying it rather than refusing it. The program refuses it outright
-  (`BelowParticipation`), so a weak update is an error, never a silent no-op.
+- **At least 2/3 of the committee signed.** Only finalized headers are applied, and the specs
+  apply those only with a supermajority; below it, the update is refused outright
+  (`InsufficientSigners`), never a silent no-op.
 - **The supplied committees hash to the stored roots.** The instance keeps only 32-byte roots;
-  the operator supplies the keys, and the program checks them before building Helios's store
-  inside the proof.
+  the operator supplies the keys, and the program checks them (`CommitteeKeysMismatch`).
 - **The update must advance the store.** An already-applied update is refused
-  (`AlreadyApplied`, R.8).
+  (`UpdateNotNewer`, R.8).
+
+The signing key is the committee's aggregate key less the members that didn't sign, so a
+supermajority signature decompresses only a handful of keys.
 
 A proof of new keys alone is never enough. The new keys are trusted only because the current
 committee signed a header containing them:
@@ -141,7 +145,7 @@ sequenceDiagram
     participant I as Program, public instance actor
     participant R as Program, record account of the new header
     S->>P: Update { material, committees }   (root call, hidden)
-    Note over P: committees vs stored roots,<br/>Helios verify + apply, 2/3 quorum
+    Note over P: committees vs stored roots,<br/>validate + apply, 2/3 quorum, BLS on blst
     P->>I: Advance { prev, next, record }   (boundary message, published)
     Note over I: accept only from own program,<br/>only if prev == current
     I->>R: WriteRecord { record }
@@ -257,19 +261,20 @@ storage proofs.
   - No transaction-trie parsing and no secp256k1 recovery sit in the trusted path.
 
 **Typed errors (U.5).** Every refusal is one code, the same in the program, the CLI's dry run
-and the docs. Helios's own errors map onto them:
+and the docs:
 
 | Failure mode (U.5) | Code |
 |---|---|
-| Header not finalized | `NotFinalized` |
-| Sync-committee signature invalid | `BadSignature`, `BelowParticipation` |
-| Committee handoff not verified | `HandoffNotVerified`, `BadCommitteeBranch`, `CommitteeMismatch` |
-| Checkpoint stale or wrong | `CheckpointStale`, `CheckpointMismatch` |
-| Inclusion proof invalid | `BadInclusion`, `BadExecutionBranch` |
-| Predicate not satisfied | `PredicateFalse` |
-| Chain-ID mismatch | `ChainMismatch` |
-| Malformed input | `Malformed` |
-| Update already applied (R.8) | `AlreadyApplied` |
+| Header not finalized | 100 `UnfinalizedHeader` |
+| Sync-committee signature invalid | 101 `InvalidSignature`, 102 `InsufficientSigners` |
+| Committee handoff not verified | 103 `UnverifiedHandoff`, 104 `CommitteeKeysMismatch`, 105 `InvalidCommitteeProof` |
+| Execution roots not proven | 106 `InvalidExecutionProof` |
+| Checkpoint stale or wrong | 107 `StaleStore`, 120 `CheckpointRootMismatch` |
+| Update already applied (R.8) | 108 `UpdateNotNewer` |
+| Inclusion proof invalid | 200 `InvalidInclusionProof` |
+| Predicate not satisfied | 201 `ConditionUnsatisfied` |
+| Chain-ID mismatch | 202 `WrongChain` |
+| Malformed input | 1 `MalformedInput` |
 
 v0.4 blocks record that a transaction reverted but not why, so the dry run is also where a
 consumer reads the code.
@@ -419,35 +424,42 @@ and submit it itself.
 ### 11. Reuse assessment (R.6)
 
 R.6 asks for mature, audited implementations of the light-client protocol and its primitives,
-and for what is reused, what is rewritten, and the audit-surface consequence.
+and for what is reused, what is rewritten, and the audit-surface consequence. We evaluated the
+candidates by running them inside a LEZ program, on recorded mainnet, in RISC Zero's executor.
 
-**We build on Helios `consensus-core`** (a16z/helios, MIT), the consensus logic of the Helios
-Ethereum light client: `verify_bootstrap`, `verify_update`, `verify_finality_update` and
-`apply_*`, covering every fork through Fulu and Gloas.
-
-Why Helios, and how we use it, against the alternatives the RFP names:
-
-| | `r0vm-helios` | Helios `consensus-core`, current | Writing our own |
+| | `r0vm-helios` | Helios `consensus-core`, current | Our verifier |
 |---|---|---|---|
-| What it is | A RISC Zero guest wrapping Helios `consensus-core` 0.8.3, proving for a Solidity contract | The library itself, current release | — |
-| Audited | **Yes, by zkSecurity**, at that version | Its logic up to 0.8.3 is the audited one; later changes are not | No |
-| Forks | Up to Electra (June 2025) | **Through Fulu and Gloas** | — |
-| Verifies today's mainnet (Fulu) | **No** | **Yes** | — |
-| zkVM | risc0 2.0 | no zkVM of its own; we pair it with risc0 3.0.5, LEZ's | — |
+| What it is | A RISC Zero guest wrapping Helios `consensus-core` 0.8.3, proving for a Solidity contract | The library (a16z/helios, MIT) | The specs' light-client protocol, about 300 lines, with BLS through `blst` |
+| Audited | **Yes, by zkSecurity**, at 0.8.3 | Its logic up to 0.8.3 is the audited one | No; in our audit (M5) |
+| Verifies today's mainnet (Fulu) | **No**: stops at Electra | Yes, through Gloas | Yes, through Gloas |
+| One update, in the program | — | **39.5M cycles**, ~34M of them in its `bls12_381` | **11.4M cycles** |
+| Init, a public transaction (10M cap) | — | 5.6M, after we took the committee hashing out of its generic SSZ path; 20.4M through its own bootstrap check | **1.4M** |
 
-- **Reused:** Helios's consensus checks, SSZ and BLS through RISC Zero's accelerated
-  `bls12_381` and `sha2` forks (the patch set `r0vm-helios` established), `alloy-trie` for
-  Merkle-Patricia proofs, `alloy-rlp` for headers.
-- **Ours:** the LEZ actor and its trust boundary, the compact store (committee roots, not keys)
-  and the 2/3 quorum enforced as an error, the record accounts, statements, predicates and
-  statement IDs, history proofs, and the operator and consumer clients.
-- **Not usable as is:** `r0vm-helios` itself, which stops at Electra and targets risc0 2.0 and
-  an EVM verifier. We take its recipe, not its guest.
-- **Audit-surface consequence.** zkSecurity's audit of `r0vm-helios` covers Helios's consensus
-  logic as of 0.8.3. Our audit (M5) covers what that audit doesn't: Helios's changes since 0.8.3
-  (Fulu, Gloas), our use of it inside a LEZ actor, and all of our own code listed above.
-- Cycle cost on LEZ: ⟨measure⟩ (section 4). Helios assembles the signing key from the
-  participants' keys; the proving time this costs is measured.
+measured, 9 Nov 2026, RISC Zero's executor at LEZ's metering, on the mainnet segment in
+`tests/data/mainnet-1904`.
+
+**What we chose, and why.** The protocol logic is the same whoever implements it; the cost is the
+BLS library. Helios calls `bls12_381` directly, which inside the zkVM costs 3.5× `blst` with
+RISC Zero's accelerator, and there is no way to swap it. So:
+
+- **Reused:** `blst` for BLS12-381 (with RISC Zero's accelerated fork), RISC Zero's accelerated
+  SHA-256 and Keccak, `alloy-trie` and `alloy-rlp` for Merkle-Patricia proofs and headers, and
+  **Helios `consensus-core` as the reference our verifier is tested against**.
+- **Written by us:** the protocol steps (period checks, finality and committee branches, the
+  signing domain, the 2/3 quorum, the store transitions), the compact store, the LEZ actor and its
+  trust boundary, records, claims and statements, history proofs, and the clients.
+- **How the rewrite is held to the audited logic:** a differential test. Every recorded mainnet
+  update, from a checkpoint through two committee handoffs to a finality update, goes through both
+  our verifier and Helios; both must accept it and reach the same store. Every adversarial case
+  (a fabricated chain signed by a committee we generated, a committee never handed off, a forged
+  next committee, 341 of 512 signers, an unfinalized header, tampered roots, another chain's
+  domain, a replay) must be refused by both. Our SSZ roots are checked equal to Helios's for
+  every committee and header.
+- **Audit-surface consequence.** The audit (M5) covers our verifier, about 300 lines of protocol
+  logic plus our use of `blst`, the LEZ actor, and the inclusion and statement code. That is a
+  small surface, and the differential suite gives the auditor a reference to check it against.
+- **`r0vm-helios`:** not usable as is (Electra only, risc0 2.0, an EVM verifier). Its patch set
+  for RISC Zero showed the way.
 
 ### 12. Dependency check against the live runtime
 
@@ -457,7 +469,7 @@ Why Helios, and how we use it, against the alternatives the RFP names:
 | SPEL IDL (U.4) | SPEL `v0.7.0-rc.3` supports neither LEZ v0.3 nor v0.4 (spel#291) | Hand-written SPEL-format IDL, with a drift check in CI |
 | Logos Ethereum core module | No light-client objects or raw `eth_getProof` nodes | Our team member extends it upstream (U.1, F.9) |
 | Standalone sequencer + Bedrock (S.2) | No published Bedrock release matches v0.4's pin | Built from source at the pinned commit; our devnet runs one Bedrock node, the sequencer and the indexer natively. Known issue: the sequencer's Bedrock funding key drains after about 1,350 blocks and must be topped up |
-| Helios `consensus-core` on risc0 3.0.5 | `r0vm-helios` ran it on risc0 2.0 | Compiled into our guest with RISC Zero's accelerated forks; the build is in this repo |
+| Helios `consensus-core` | Current release through Fulu and Gloas | Host only: decodes Beacon API JSON for the client, and is the differential oracle in the tests. Not in the program |
 
 ---
 
@@ -467,8 +479,8 @@ TODO: payouts and dates. The total is 8–12 weeks plus the audit.
 
 | # | Milestone | Weeks | Deliverables |
 |---|---|---|---|
-| M0 | Cost baseline | 1 | Public and proven update numbers on the Helios build, laptop and lowest-RAM numbers, a GPU number on `v0.4`, reviewed with Logos before the build |
-| M1 | Verifier and updates | 3 | Helios-based verifier in the program, proven path, public path, Init, instance immutability, VS.1–VS.2 suite through the deployed program, catch-up, decision log |
+| M0 | Cost baseline | 1 | Public and proven update numbers, laptop and lowest-RAM numbers, a GPU number on `v0.4`, reviewed with Logos before the build |
+| M1 | Verifier and updates | 3 | The verifier with its Helios differential suite, proven path, public path, Init, instance immutability, VS.1–VS.2 suite through the deployed program, catch-up, decision log |
 | M2 | Attestation | 2 | Public and private attest, predicates, statement IDs, history proofs, ERC-20 and native-ETH reference consumers, F.8 evidence with the full state diff, P.4 laptop numbers |
 | M3 | Ethereum side and operations | 2–3 | Core module extensions, F.9 checkpoint API, daemon (Logos module plus headless CLI), CLI with dry run and tight gas limits |
 | M4 | Testnet and release | 2 | LEZ testnet 0.4 deployment against a public Ethereum testnet (once launched), all benchmarks re-run on the final 0.4, e2e CI on a standalone sequencer, docs, trust-assumptions document, module catalog release |
@@ -482,7 +494,7 @@ Every hard requirement maps to a design element and a test or artifact.
 
 | Req | Design | Evidence |
 |---|---|---|
-| F.1 | Module checks the aggregate in its proven actor, with Helios | Real mainnet updates proven on the node |
+| F.1 | Module checks the aggregate in its proven actor, on `blst` | Real mainnet updates proven on the node; same verdicts as Helios |
 | F.2 | Finality branch plus 2/3 participation | Reject-unfinalized and below-quorum tests |
 | F.3 | Account, storage and receipt-log MPT, roots bound to the record | Inclusion tests; caller-root-ignored test; tampered proof refused on both paths on the node |
 | F.4 | Predicate language (section 7) | Consumer-defined predicate test, no module change |
@@ -503,7 +515,7 @@ Every hard requirement maps to a design element and a test or artifact.
 | R.1, R.2 | Deterministic, read-only attest; dry run before submit | Repeat-verdict test; a refused private attest submits nothing; the CLI stops on a refused public one |
 | R.3 | Immutable record accounts | Records written once and read back; post-rotation validity test |
 | R.4, R.5 | Daemon resumes from LEZ state | Kill and restart tests |
-| R.6 | Helios `consensus-core` (section 11) | Section 11; the build |
+| R.6 | Evaluated Helios, `r0vm-helios` and our verifier (section 11) | Measured cycles; the differential suite against Helios |
 | R.7 | Stalled instance resumes; catch-up | Stall test |
 | R.8 | `prev == current` check on `Advance` | Racing and replay tests |
 | R.9, R.10 | Re-check plus deferral | Multi-operator test |
@@ -552,9 +564,9 @@ Every hard requirement maps to a design element and a test or artifact.
 - **D10: Two updates per period, plus on demand.** Liveness (the handoff), coverage (records less
   than 8,191 blocks apart), and cost. An event newer than the latest record waits up to 13.7 h,
   or for an on-demand update.
-- **D11: Helios `consensus-core` as the consensus logic (R.6).** The audited lineage, current
-  through Fulu and Gloas, on LEZ's zkVM. Rejected: `r0vm-helios` as is (stops at Electra, risc0
-  2.0, an EVM verifier); writing our own (no audit, a larger audit scope).
+- **D11: Our verifier on `blst`, held to Helios by a differential suite (R.6).** Helios in the
+  program costs 3.5× the cycles, all in its BLS library, which can't be swapped. Rejected:
+  Helios in the program (cost); `r0vm-helios` as is (Electra only, risc0 2.0, an EVM verifier).
 
 ---
 
@@ -572,11 +584,9 @@ budget.
   older event, within 8,191 blocks, needs no update. GPU proving (B10) is the main lever.
 - **Operator hardware.** Proving time and peak memory per update ⟨measure⟩. Smaller segments
   trade time for memory; measured in M0.
-- **Helios on LEZ's zkVM.** Helios's cost inside a LEZ actor is measured on this build. If the
-  key assembly proves too slow, the program supplies decompressed keys as a witness, a change on
-  our side of the boundary, not in Helios's checks.
-- **Unaudited Helios changes.** Helios's Fulu and Gloas support postdates the zkSecurity audit;
-  it is in our audit scope (M5).
+- **Our verifier is new code.** It is small (about 300 lines of protocol logic), tested against
+  Helios on every recorded update and every adversarial case, and in the audit (M5). A
+  disagreement with Helios fails CI.
 - **Testnet 0.4 timing.** The public testnet isn't live yet. Everything up to M4 runs on the rc
   and a local devnet. If the launch slips past M4, the deployment moves with it and the rest of
   M4 is delivered on the devnet.

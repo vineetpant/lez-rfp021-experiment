@@ -21,30 +21,32 @@ The proposal is [rfp-021/proposal.md](rfp-021/proposal.md).
   published, from a one-time alias). History proofs reach any block in the 8,191 before a
   record, so the instance needs only two updates per sync-committee period.
 
-## Built on Helios
+## The verifier, and Helios as its reference
 
-The light-client program, now being built, verifies updates with **Helios `consensus-core`**
-(a16z/helios, MIT), the consensus logic of the Helios Ethereum light client, compiled into the
-program's image for RISC Zero's zkVM, which LEZ runs on.
+The program checks each update with **our verifier** (`lc/types/src/core.rs`): the consensus
+specs' light-client protocol, about 300 lines, with BLS12-381 through **`blst`** and RISC Zero's
+accelerator. We wrote the protocol steps (period checks, finality and committee branches, the
+signing domain, the 2/3 quorum, the store transitions); the cryptography is `blst`'s.
 
-**Why Helios: RFP-021's R.6.** The RFP asks proposals to integrate mature, audited
-implementations of the light-client protocol rather than write their own, and to say what is
-reused, what is rewritten, and what that leaves for the audit.
+**Helios `consensus-core`** (a16z/helios, MIT) is its reference. RFP-021's R.6 asks proposals to
+reuse mature, audited light-client implementations, and Helios's consensus logic is the one
+zkSecurity audited inside `r0vm-helios`, on the zkVM LEZ uses. We evaluated it inside the program
+first, and measured:
 
-- Helios's consensus logic is the audited one in the RISC Zero ecosystem: zkSecurity audited it
-  inside `r0vm-helios`, a RISC Zero guest built on Helios `consensus-core` 0.8.3.
-- `r0vm-helios` itself isn't usable here. It stops at the Electra fork, so it can't verify
-  today's mainnet (Fulu); it targets risc0 2.0, where LEZ uses 3.0.5; and it proves for a
-  Solidity verifier. We use current Helios, which covers Fulu and Gloas, with the same RISC Zero
-  patch set `r0vm-helios` established: accelerated `bls12_381` and `sha2`.
-- **Reused:** Helios's consensus checks; `alloy-trie` and `alloy-rlp` for Merkle-Patricia proofs
-  and headers.
-- **Ours:** the LEZ actor and its trust boundary, the compact store (committee roots, not keys),
-  the 2/3 quorum enforced as an error, record accounts, statements and predicates, history
-  proofs, and the operator and consumer clients.
-- **For the audit:** zkSecurity's audit covers Helios's consensus logic as of 0.8.3. What it
-  doesn't cover goes in our audit: Helios's changes since (Fulu, Gloas), its use inside a LEZ
-  actor, and all of our own code.
+| One update, in the program | Cycles |
+|---|---:|
+| Helios `consensus-core` | 39.5M, about 34M of it in its BLS library (`bls12_381`) |
+| Our verifier, on `blst` | **11.4M** |
+
+The protocol logic is the same either way; the difference is the BLS library, which Helios
+doesn't let us swap. So Helios checks our verifier instead, in the tests (`tests/oracle.rs`,
+`tests/adversarial.rs`): every recorded mainnet update, through two committee handoffs, goes
+through both, and both must reach the same store; every attack (a fabricated chain signed by a
+committee we generated, a committee never handed off, a forged next committee, too few signers,
+an unfinalized header, tampered roots, another chain's domain, a replay) must be refused by both.
+
+`r0vm-helios` itself isn't usable: it stops at the Electra fork, so it can't verify today's
+mainnet (Fulu), and it targets risc0 2.0 and a Solidity verifier.
 
 ## Status
 
@@ -61,6 +63,7 @@ reproducible guest builds).
 ```bash
 ./scripts/up.sh       # builds and starts Bedrock, the sequencer and the indexer, all native
 ./scripts/hello.sh    # build, deploy, call publicly and privately, check the greeting
+./scripts/lc.sh       # eth_lc end to end: deploy, Init, two updates, attestations, negative cases
 ./scripts/down.sh     # stop, keep state
 ./scripts/reset.sh    # stop and wipe back to genesis
 ```
@@ -73,12 +76,17 @@ idle, its Bedrock node keeps several cores busy.
 
 | Path | What |
 |---|---|
+| `lc/types/` | the program's messages, state and checks, shared with the client and tests: `core` (the verifier), `mpt` (inclusion proofs), `statement` (claims and statements), `history` (older blocks), `oracle` (Helios, host only) |
+| `lc/guest/` | the `eth_lc` program. Its own workspace, RISC-V only, with RISC Zero's accelerated `blst`, SHA-256 and Keccak |
+| `src/bin/eth_lc.rs` | the operator and consumer client |
+| `src/chain.rs` | Beacon API JSON, through Helios's types, into the verifier's |
 | `src/lib.rs` | deploying a program, following private state, fee measurement |
 | `src/bin/hello_world.rs` | the hello-world client |
+| `tests/` | native tests on recorded mainnet: the oracle and adversarial suites, history, statements, cycle costs |
 | `guest/` | the hello-world program. Its own workspace, RISC-V only |
 | `configs/` | devnet configs for Bedrock, the sequencer, the indexer and the wallet, from LEZ `v0.4.0-rc1` |
 | `scripts/` | the devnet lifecycle, and helpers such as `header_rlp.py` |
-| `rfp-021/` | the proposal |
+| `rfp-021/` | the proposal, results and benchmark plan |
 | `.devnet/` | everything the devnet writes, and its binaries. Gitignored |
 
 ## Licence

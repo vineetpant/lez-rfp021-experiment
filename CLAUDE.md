@@ -3,7 +3,8 @@
 ## What this is
 
 The working ground for an RFP-021 proposal (`rfp-021/proposal.md`): `eth_lc`, a LEZ program
-that tracks finalized Ethereum through the sync committee on Helios's consensus checks, and lets
+that tracks finalized Ethereum through the sync committee, with our verifier checked against
+Helios, and lets
 other LEZ programs attest to Ethereum state publicly or privately. It runs on a local LEZ
 `v0.4.0-rc1` node (Bedrock, sequencer, indexer) against live mainnet, with real proofs. A
 hello-world program on the same devnet is the toolchain's smoke test.
@@ -39,7 +40,7 @@ cargo test --release  # native tests: honest chain, adversarial suite, history, 
 
 | Path | What |
 |---|---|
-| `lc/types/` | messages, state and checks, shared by program, client and tests: `verify` (Helios), `mpt` (alloy-trie), `statement`, `history` |
+| `lc/types/` | messages, state and checks, shared by program, client and tests: `core` (the verifier), `mpt` (alloy-trie), `statement`, `history`, `oracle` (Helios, host only) |
 | `lc/guest/` | the `eth_lc` program. Its own workspace, RISC-V only, with RISC Zero's accelerated forks patched in |
 | `src/bin/eth_lc.rs` | the operator and consumer client |
 | `src/chain.rs` | Beacon API JSON into Helios's types; `eth_getProof` parsing |
@@ -50,22 +51,24 @@ cargo test --release  # native tests: honest chain, adversarial suite, history, 
 
 ## Why things are the way they are
 
-**Helios `consensus-core` is the consensus logic** (RFP R.6: integrate audited
-implementations). zkSecurity audited it, at 0.8.3, inside `r0vm-helios`. We use current Helios
-(pinned by commit in `lc/types/Cargo.toml`) because 0.8.3 stops at Electra and mainnet runs Fulu.
-The audit doesn't cover Helios's changes since 0.8.3; the proposal says so.
+**The verifier is ours, Helios is its reference** (RFP R.6: reuse audited implementations,
+or justify the rewrite). Helios `consensus-core` inside the program costs 39.5M cycles an update,
+~34M in its `bls12_381`, which it doesn't let us swap; our spec implementation on `blst` costs
+11.4M. Helios stays host-side (`oracle` feature): it decodes Beacon API JSON for the client, and
+`tests/oracle.rs` and `tests/adversarial.rs` hold the verifier to it, same verdict and same store
+on every case. Its audit (zkSecurity, inside `r0vm-helios`) covers its logic up to 0.8.3.
 
-**The store keeps committee roots, not keys.** Helios's store holds both 512-key committees.
-`verify::update` takes the keys from the submitter, checks them against the stored roots, and
-builds Helios's store for one check. It also refuses below 2/3 participation as an error:
-Helios applies nothing below 2/3 but doesn't refuse it.
+**The store keeps committee roots, not keys.** The submitter supplies the keys; the verifier
+checks them against the stored roots. Updates below 2/3 participation are refused as an error.
 
-**The guest needs RISC Zero's accelerated forks and Helios's own patch.** `bls12_381` and `sha2`
-(both 0.9 and 0.10 are in the tree) from RISC Zero, and `ethereum_hashing` from the fork Helios
-patches in, which hashes with `sha2` instead of `ring` (ring doesn't build for the zkVM).
+**The signing key is the aggregate less the non-signers,** so only a few keys are decompressed.
+
+**The guest needs RISC Zero's accelerated forks** of `blst`, `sha2` and `tiny-keccak`, patched in
+`lc/guest/Cargo.toml`. Helios isn't in the guest at all.
 
 **The guest builds with the rustc 1.97 builder image** (`LC_BUILDER_TAG`, `r0.1.97.0`), under
-amd64 emulation, because alloy 2.5 needs rustc 1.94 and that image has no arm64 build. Hello world
+amd64 emulation, because alloy 2.5 needs rustc 1.94 and that image has no arm64 build. `lc.sh`
+rebuilds it every run, so a stale program is never deployed. Hello world
 still builds with `GUEST_BUILDER_TAG`.
 
 **Fees are measured from balances.** v0.4 exposes no receipts. A private step's refund goes to
