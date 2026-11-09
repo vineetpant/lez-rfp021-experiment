@@ -1,7 +1,7 @@
 # RFP-021 proposal: Trustless Ethereum State Attestation for LEZ
 
-Status: design final. Every figure marked ⟨measure⟩ is filled from the node runs on a LEZ `v0.4.0-rc1` node before submission. The team fields marked TODO
-are still to fill. The deadline is 10 Nov 2026 (logos-co/rfp README, DD/MM/YY).
+Status: design final, measured on a LEZ `v0.4.0-rc1` node with real proofs (9 Nov 2026). The
+team fields marked TODO are still to fill. The deadline is 10 Nov 2026 (logos-co/rfp README, DD/MM/YY).
 
 Sections follow the fields of the RFP proposal form (`.github/ISSUE_TEMPLATE/proposal.yml`).
 
@@ -9,8 +9,7 @@ Every number here is one of:
 
 - **protocol**: read from LEZ `v0.4.0-rc1` or the Ethereum specification, with the source;
 - **derived**: arithmetic from other numbers, shown;
-- **measured**: from our own runs, logged in [results.md](results.md);
-- **⟨measure⟩**: not yet run on the node.
+- **measured**: from our own runs, logged in [results.md](results.md).
 
 TODO before submission:
 
@@ -40,7 +39,7 @@ We build that primitive as one LEZ 0.4 program.
   the finality branch and the committee handoff. It runs on a private actor of the program,
   proven by whoever submits it, and lands as **one** transaction. LEZ meters a private
   transaction's proven work at a flat 409,764 exec gas plus its public part (protocol), against
-  a check that exceeds one public transaction's 10M cap when run publicly ⟨measure⟩.
+  a check of 11.4–12.5M cycles, over the 10M cap of a public transaction (measured).
 - **The module checks the aggregate itself (F.1),** inside LEZ's own execution proof, so no
   second proof system is added.
 - **A public path is kept.** The same verifier also runs publicly, split across transactions,
@@ -161,11 +160,15 @@ On a LEZ v0.4 node, with live mainnet updates and real proofs, on the reference 
 
 | | Handoff update | Finality update |
 |---|---:|---:|
-| Private cycles | ⟨measure⟩ | ⟨measure⟩ |
-| Proving + submit | ⟨measure⟩ | ⟨measure⟩ |
-| Peak memory | ⟨measure⟩ | ⟨measure⟩ |
-| Public part | ⟨measure⟩ | ⟨measure⟩ |
-| Net charge | ⟨measure⟩ | ⟨measure⟩ |
+| Private cycles (executor) | 12.53M | 11.39M |
+| Proving + submit | **2,199.6 s (36.7 min)** | **2,137.1 s (35.6 min)** |
+| Peak memory | 8.4 GB | 8.7 GB |
+| Public part | 32,905 cycles | 56,998 cycles (writes the new record account) |
+| Net charge | **5,333,856** | **5,526,600** |
+
+measured, 9 Nov 2026 ([results](results.md#node-run-real-proofs-on-a-lez-v04-devnet)). A first
+run of the same verifier proved them in 37.8 and 35.3 min. Init, the public bootstrap check,
+costs 1,372,713 exec gas (1.36M cycles), well inside one transaction.
 
 Smaller proof segments trade time for memory; the lowest workable RAM is measured in M0.
 GPU proving is measured in M0. **Catch-up:** one private execution can verify several
@@ -176,7 +179,7 @@ consecutive periods, so a stalled instance resumes in one transaction (R.7), mea
 - The same verifier runs as public actor messages, spread across blocks. Each step must fit
   `MAX_GAS_EXEC` = 10M, which caps both a transaction's gas limit and a whole block (protocol).
 - The split puts the BLS pairing in its own step; the cycle split and the number of steps are
-  ⟨measure⟩.
+  measured in M0.
 - It needs no prover, so anyone can advance the instance with only a consensus endpoint and LEZ
   gas (F.11, S.7).
 - It produces the public numbers for P.2 and the precompile comparison for P.8. A precompile is
@@ -190,7 +193,8 @@ Merkle-Patricia proofs are checked with `alloy-trie`, the same crate `r0vm-helio
 storage proofs.
 
 - **Public:** the consumer's message to the record account runs on the sequencer: the proof
-  check and the predicates. Cost per statement type ⟨measure⟩.
+  check and the conditions. A WETH storage slot at the record: **301,115 exec gas** (3% of the
+  10M cap, 15% of the default 2M gas limit), 7,514 B, a charge of **2,469,032** (measured).
 - **Private:** `AttestPrivate` runs on a private actor of the program, inside the consumer's
   private transaction.
   - The query, the Ethereum proof and the predicates are evaluated inside the proof and never
@@ -213,16 +217,19 @@ storage proofs.
     is "proved after that header", which the submission time already shows.
   - **Evidence (F.8):** after each private step, a publication check lists every published field
     and searches the whole transaction, proof included, for the consumer's accounts, the payer,
-    the queried address and slot, and the proof leaves. Results ⟨measure⟩; the full public-state
-    diff is M2.
+    the queried address and slot, and the proof leaves. On the node every private step passed:
+    what is published is the one boundary message and the fee reserve, each from a one-time
+    alias (measured). The full public-state diff is M2.
 - **Refusals.** v0.4 includes a public transaction that fails and charges its whole gas limit
-  (protocol), so a refused public attestation costs several times an accepted one ⟨measure⟩.
+  (protocol), so a refused public attestation costs 16,060,112, 6.5× an accepted one (measured).
   The CLI therefore dry-runs the check before submitting and stops on a refusal, with the same
   typed error the program gives (U.2). A refused private attestation costs nothing: the wallet
   runs the program before proving, so a broken one is never sent.
-- **Minimum spec for a consumer's private attestation (P.4):** time and peak memory on the
-  reference laptop ⟨measure⟩, with a light desktop load (no second browser): proving shares the
-  machine's memory, and starving it multiplies the time.
+- **Minimum spec for a consumer's private attestation (P.4):** **853–912 s (14.2–15.2 min) and
+  7.3–7.8 GB peak** on the reference laptop (M3 Pro, 18 GB, CPU), measured; its net charge is
+  5,232,864. We declare 16 GB of RAM, CPU proving, as the supported minimum today, with a light
+  desktop load: proving shares the machine's memory, and starving it multiplies the time.
+  Smaller proof segments, measured in M0, aim at 8 GB.
 - **Verified once, used many times.** Attestation never re-verifies an update. It trusts a
   record because only the program writes it, and only after verification.
 - **R.11 (independent submissions):** records are immutable and attestation writes no shared
@@ -296,7 +303,17 @@ lets the instance run on two updates per period (section 9).
   600 bytes a block. On the public path that suits short gaps; on the private path the work is
   inside the consumer's proof, which the fee doesn't meter, so it costs proving time only.
 - **Older than about 27 h:** beacon `historical_summaries`.
-- Cost on both paths, at the record and for a block 1,000 back: ⟨measure⟩.
+- **Measured on the node:**
+
+  | Target | Public | Private |
+  |---|---:|---:|
+  | The record's own block | 2,469,032 (301k exec gas) | 5,232,864, 14.6 min |
+  | 1,000 blocks back, EIP-2935 | **4,504,320** (549k exec gas, 13.9 KB) | **5,232,864**, 15.2 min |
+  | 3 blocks back, parent-hash chain | **3,297,992** (402k exec gas, 10.1 KB) | **5,232,864**, 14.2 min |
+
+  All accepted, a forged history header refused on both paths. In private, reaching an older
+  block costs nothing extra: the history proof is inside the consumer's proof, and what is
+  published is the same `CheckRecord`.
 
 ### 9. Operator daemon (U.3, R.4, R.5, R.8–R.10)
 
@@ -309,7 +326,8 @@ The daemon is a Logos module plus a Logos Core headless CLI.
   - one about 13.7 h later, so consecutive records stay well inside the 8,191-block history
     window and every block between them can be proven from the later one (section 8)
   - on demand, for an event newer than the latest record, paid by whoever needs it
-  - Tracking cost per period: two update charges ⟨measure⟩. There is no heartbeat.
+  - Tracking cost: about 11.05M per period at the base-fee floor, 3.55 × 10⁹ a year, 0.001% of
+    the period's exec capacity ([derived](results.md#derived)). There is no heartbeat.
 - **Re-check before submit (R.9):** two updates on top of the same store can't both apply, and
   the loser still pays its reserve. The daemon re-reads the instance immediately before sending
   and keeps its reserve tight.
@@ -521,11 +539,11 @@ Every hard requirement maps to a design element and a test or artifact.
 | R.9, R.10 | Re-check plus deferral | Multi-operator test |
 | R.11 | Immutable records, no shared writes | Same-block private attest test |
 | R.12 | CI | Green default branch |
-| P.1 | Attest under the per-transaction budget | ⟨measure⟩ |
+| P.1 | Attest under the per-transaction budget | 301k–549k exec gas against a 10M cap (measured) |
 | P.2 | Per action: cycles, gas, proof time, proof size | results.md |
 | P.3 | Amortised tracking cost at the recommended cadence | Two updates per period, results.md |
-| P.4 | Laptop and minimum-spec proving | ⟨measure⟩ |
-| P.5 | Latency breakdown | No update wait for a block before the latest record; on demand ⟨measure⟩ |
+| P.4 | Laptop and minimum-spec proving | Updates 35.6–36.7 min, 8.4–8.7 GB; private attestation 14.2–15.2 min, 7.3–7.8 GB; declared minimum 16 GB |
+| P.5 | Latency breakdown | No update wait for a block before the latest record; on demand about 48–56 min on the reference laptop |
 | P.6 | Daemon and prover resources | Report |
 | P.7 | Storage growth over 1 and 5 years | 186 B a record, 642 a year: 119 KB a year, 597 KB over 5 (derived) |
 | P.8 | In-program vs precompile delta | Report |
@@ -580,10 +598,11 @@ budget.
 - **Provisional private fees.** `PRIVATE_VERIFY_GAS` is marked `FIXME: Provisional` in LEZ. If
   private work became metered, D1's advantage would shrink. Path B keeps the system working.
 - **Latency, for an event newer than the latest record.** About 13 min of Ethereum finality, up
-  to 6.4 min for the update to appear, then proving the update ⟨measure⟩, then one block. An
-  older event, within 8,191 blocks, needs no update. GPU proving (B10) is the main lever.
-- **Operator hardware.** Proving time and peak memory per update ⟨measure⟩. Smaller segments
-  trade time for memory; measured in M0.
+  to 6.4 min for the update to appear, 35.6–36.7 min of proving on the reference laptop, then
+  one block: about 48–56 min. An older event, within 8,191 blocks, needs no update. GPU proving
+  (M0) is the main lever.
+- **Operator hardware.** Per update: 35.6–36.7 min and 8.4–8.7 GB peak on the reference laptop
+  (M3 Pro, 18 GB, CPU), measured. Smaller segments trade time for memory; measured in M0.
 - **Our verifier is new code.** It is small (about 300 lines of protocol logic), tested against
   Helios on every recorded update and every adversarial case, and in the audit (M5). A
   disagreement with Helios fails CI.

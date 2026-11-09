@@ -93,3 +93,25 @@ fn attest_cycles() {
         Err(e) => panic!("Attest: {e:#}"),
     }
 }
+
+#[test]
+fn handoff_cycles() {
+    let chain = mainnet();
+    let (steps, _) = support::steps(&chain);
+    // The first step learns the next committee: a handoff update.
+    let s = &steps[1];
+    let update = LcMsg::Update {
+        instance: Actor::new(AccountId::new([7; 32]), AccountId::new([9; 32])),
+        cfg: chain.cfg.clone(),
+        store: s.store.clone(),
+        update: oracle::update(&s.update),
+        current: s.current.clone(),
+        next: s.next.clone(),
+        rlp: None,
+    };
+    let u = oracle::update(&s.update);
+    match run(&update) {
+        Ok(cycles) => println!("Update (handoff, next committee {}): {cycles} cycles", u.next_committee.is_some()),
+        Err(e) => panic!("Update: {e}"),
+    }
+}

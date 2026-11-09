@@ -1,0 +1,180 @@
+# start Mon Nov  9 16:40:11 IST 2026
+# apps: Stickies, Electron, Notes, Keychain Access, Finder, Google Chrome, System Settings, Brave Browser
+
+[1;34m==>[0m Stopping indexer and sequencer
+  indexer not running
+  sequencer not running
+
+[1;34m==>[0m Stopping bedrock
+  bedrock not running
+
+Devnet stopped. State kept - run ./scripts/reset.sh to wipe it.
+
+[1;34m==>[0m Removing chain and wallet state
+  removed .devnet/state, .devnet/logs and the wallet store
+
+Clean. Next: ./scripts/up.sh
+
+[1;34m==>[0m Checking prerequisites
+  cargo    ok
+
+[1;34m==>[0m Checking the ports are free
+  18080 free (bedrock)
+  3040  free (sequencer)
+  8779  free (indexer)
+
+[1;34m==>[0m Installing bedrock
+  already installed in .devnet/bin
+
+[1;34m==>[0m Installing the LEZ service binaries
+  already installed in .devnet/bin
+
+[1;34m==>[0m Starting bedrock
+  pid 28266
+  answering on 18080
+
+[1;34m==>[0m Starting indexer
+  pid 28281
+
+[1;34m==>[0m Starting sequencer
+  set up ~/store/projects/lez/lez-hello-world-helios/.devnet/state/sequencer
+  pid 28284
+
+[1;34m==>[0m Waiting for the chain to accept the wallet
+  healthy after 20s
+
+Devnet up. Logs in ~/store/projects/lez/lez-hello-world-helios/.devnet/logs
+Next: ./scripts/hello.sh
+
+[1;34m==>[0m Building the host binary
+   Compiling eth-lc-types v0.1.0 (~/store/projects/lez/lez-hello-world-helios/lc/types)
+   Compiling lez-hello-world v0.1.0 (~/store/projects/lez/lez-hello-world-helios)
+    Finished `release` profile [optimized] target(s) in 13.10s
+warning: the following packages contain code that will be rejected by a future version of Rust: block v0.1.6, proc-macro-error2 v2.0.1
+note: to see what the problems were, use the option `--future-incompat-report`, or run `cargo report future-incompatibilities --id 3`
+
+[1;34m==>[0m Compiling the guest program to RISC-V
+  already built: guest/target/riscv32im-risc0-zkvm-elf/docker/hello_world.bin
+  guest/target/riscv32im-risc0-zkvm-elf/docker/hello_world.bin
+
+[1;34m==>[0m Importing the funded genesis account as fee payer
+  Public/CbgR6tj5kWx5oziiFptM7jMvrQeYY3Mzaao6ciuhSr2r
+
+[1;34m==>[0m Public call: deploy, call, read back
+  deployed at header account H3NvCqGCdNRRJyq1D4UPLdz9FNCk7D5XLP3xEeKKFUiT
+  FEE step=deploy charged=2393792 blocks=2..12 base_fee_exec=8..8 base_fee_stor=8..8
+  submitted tx b4b4eaa553d4b31bbe6a5b1697f31c0a29793152e50f1c6c085aac58a2e0aa0f
+  included in block 13
+  FEE step=call-public tx=b4b4eaa553d4b31bbe6a5b1697f31c0a29793152e50f1c6c085aac58a2e0aa0f block=13 charged=64784 bytes=446 stor_gas=446 exec_gas=7652 exec_gas_remainder=0 gas_limit=2000000 tip=0 base_fee_exec=8 base_fee_stor=8 base_fees_steady=true
+  actor state: 486f6c61206d756e646f21 = "Hola mundo!"
+
+[1;34m==>[0m Funding a private fee payer
+  Transaction is included in block 35
+  Private/13P38iR8SNHYAus5GkU244MTWkE796US8Lorjv7xd17A
+
+[1;34m==>[0m Private call: deploy, prove locally, submit the proof, read back
+  deployed at header account GAKxXuSpb1S7Sm6nSyfJobYEWA1frNewchbJRPQpP4TX
+  FEE step=deploy charged=2393792 blocks=36..46 base_fee_exec=8..8 base_fee_stor=8..8
+  submitted tx 3e1d1262be618891a417dc55448e1a0e8c251da7dd84d0be4ea23b755a9e5cb4
+  included in block 85
+  FEE step=call-private-refund charged=-3169135 blocks=46..85 base_fee_exec=8..8 base_fee_stor=8..8
+  actor state: 486f6c61206d756e646f21 = "Hola mundo!"
+
+[1;32mPASS[0m  the program ran on LEZ publicly and privately, and the greeting round-tripped both ways.
+Fees charged: ~/store/projects/lez/lez-hello-world-helios/.devnet/logs/fees.log
+
+[1;34m==>[0m Building the light-client program and its client
+    Finished `release` profile [optimized] target(s) in 1.34s
+warning: the following packages contain code that will be rejected by a future version of Rust: block v0.1.6, proc-macro-error2 v2.0.1
+note: to see what the problems were, use the option `--future-incompat-report`, or run `cargo report future-incompatibilities --id 3`
+  ImageID: 93205a5c84e0f1c776b4c124d6d04510c2469d309653d4be9ec3521509b3d85c - ~/store/projects/lez/lez-hello-world-helios/lc/guest/target/riscv32im-risc0-zkvm-elf/docker/eth_lc.bin
+  lc/guest/target/riscv32im-risc0-zkvm-elf/docker/eth_lc.bin
+
+[1;34m==>[0m Accounts
+  payer Public/CbgR6tj5kWx5oziiFptM7jMvrQeYY3Mzaao6ciuhSr2r
+  instance Public/5Gp3QGZiMVinZKEoupN6KFiGyjsYQUkqJCLD44Gu6DZ4
+  operator Private/49UTEMrrgXwfWZP6ucqnYnzJX2t9HZm4L5YD7NLwSRZV
+  private fee payer Private/13P38iR8SNHYAus5GkU244MTWkE796US8Lorjv7xd17A
+
+[1;34m==>[0m Fetching a live mainnet checkpoint and checking it natively
+  bootstrap: slot 15616576, period 1906, root 0x0c48e6abe6d619ef5d8366f0838b63daec7df11e9b39949c5cdb2599e6bc1864
+  finality update: finalized slot 15616576, block 26376972
+  bootstrap verifies: slot 15616576 block 26376972
+  next update verifies: slot 15616576 -> 15616576, handoff true
+  MEM step=check max_rss_bytes=74645504
+
+[1;34m==>[0m Deploying eth_lc (immutable)
+  Transaction hash is d0e3957d4c4cd0ec474dffa2a9691922fc932220e69df22e20a2ad535fd8bf13
+  Transaction hash is 9ff12ec755555e8ab1d5476b1d99c56fdb64ddf139fee9a29b1349f324d843b3
+  Transaction hash is 8353a430eb0e918b4d37802297ea2d7e53c8ba861d811ff8467811467ba33b66
+  Transaction hash is d2147cde97286e9d3bbbf31c52ce05a542a0a952dabd25f99a1738a09707c689
+  Transaction hash is 2ac017c2c4d5465df9f25d4e6fc96545da83f1ff7c37c7fcabf0ad5e9655aff0
+  Transaction hash is 7dea2185231412f9ff4ec9859a2948bae9a3562419b3ab8d84037d3383d733c8
+  Transaction hash is 73c01daeea78510c09b0d47ab6688b3de17b1ec03339e56959b135000071a999
+  Transaction hash is 58e5c0e2a2d767bc6614ada6fdd50698cc574ff1b174d58ec91f8acd6461f045
+  FEE step=lc-deploy charged=5454368 blocks=96..112 base_fee_exec=8..8 base_fee_stor=8..8
+  deployed at header account 6nAKvDFSfRFSiAkbeiV8G8RjSR19pBq25ycrUsF8mCxx
+  MEM step=deploy max_rss_bytes=85262336
+
+[1;34m==>[0m Init: binding the config and the checkpoint (public, signed by the instance)
+  FEE step=lc-init tx=f68a467bec84c19a6151e79900e56f8be4d88c60005261992530a782a9017e03 block=113 charged=11194296 bytes=26578 stor_gas=26578 exec_gas=1372709 exec_gas_remainder=0 gas_limit=10000000 tip=0 base_fee_exec=8 base_fee_stor=8 base_fees_steady=true
+  STATUS step=lc-init block=113 reverted=false
+  initialised at slot 15616576 block 26376972
+  MEM step=init max_rss_bytes=76365824
+
+[1;34m==>[0m Update 1: committee handoff (private, proven locally)
+  update: slot 15616576 -> 15616576 (block 26376972), handoff true, signers 0
+  Latest block is 113
+  TIME step=lc-update prove_and_submit_s=2267.5 included_s=2279.5
+  Syncing to block 265. Blocks to sync: 152
+  Synced to block 265 in 1.172886959s
+  Latest block is 265
+  FEE step=lc-update-refund charged=-3333770 swept=0
+  STATUS step=lc-update block=265 reverted=false
+  PUBLISHED step=lc-update public-actor instance@eth_lc
+  PUBLISHED step=lc-update public-actor unlinked 8ga8NDaWPPnpAo2sWwj4Cjrhcb8hvNa7nrxJaAZh6jwq@native token
+  PUBLISHED step=lc-update private-to-public from=unlinked 6eeX5KeiLkhyKcQupzfx7tPvTSin4UouKa9y35QPBR7G@eth_lc to=instance@eth_lc carries=Advance
+  PUBLISHED step=lc-update private-to-public from=unlinked ACdj6yUpYEyLWGRc2zerxJbFk4keUnbH7cxxAEhh6tdY@native token to=unlinked 8ga8NDaWPPnpAo2sWwj4Cjrhcb8hvNa7nrxJaAZh6jwq@native token carries=Credit(8667802)
+  PUBLISHED step=lc-update sealed-messages=0 recovery-bindings=1 private-actions=7 refund-to=payer-alias fee-fallback=true
+  PRIVACY step=lc-update searched=5 bytes=255068 pass
+  advanced in block 265 to slot 15616576 block 26376972
+  MEM step=update max_rss_bytes=8263204864
+  FEE step=lc-update-charged reserve=8667802 refund=3333770 swept=0 charged=5334032 public_cycles=32927 base_fee_exec=8 base_fee_stor=8
+
+[1;34m==>[0m Update 2: finality (private, proven locally)
+  finality update: finalized slot 15616800, block 26377196
+  next update verifies: slot 15616576 -> 15616800, handoff false
+  MEM step=pending max_rss_bytes=75530240
+  update: slot 15616576 -> 15616800 (block 26377196), handoff false, signers 510
+  Latest block is 265
+  TIME step=lc-update prove_and_submit_s=2116.2 included_s=2128.3
+  Syncing to block 407. Blocks to sync: 142
+  Synced to block 407 in 867.032333ms
+  Latest block is 407
+  FEE step=lc-update-refund charged=-3454305 swept=3333770
+  STATUS step=lc-update block=407 reverted=false
+  PUBLISHED step=lc-update public-actor record@eth_lc
+  PUBLISHED step=lc-update public-actor instance@eth_lc
+  PUBLISHED step=lc-update public-actor unlinked 8ga8NDaWPPnpAo2sWwj4Cjrhcb8hvNa7nrxJaAZh6jwq@native token
+  PUBLISHED step=lc-update private-to-public from=unlinked 3Yzr1jpfsxNRPEPScZ3ShKKXitZyV91urpE94VYLUJko@eth_lc to=instance@eth_lc carries=Advance
+  PUBLISHED step=lc-update private-to-public from=unlinked 9Di2yQcZkU9zyX4GgdSbYdXdvwVwQyDHsp5Hsp4pMSp4@native token to=unlinked 8ga8NDaWPPnpAo2sWwj4Cjrhcb8hvNa7nrxJaAZh6jwq@native token carries=Credit(8981193)
+  PUBLISHED step=lc-update sealed-messages=0 recovery-bindings=1 private-actions=7 refund-to=payer-alias fee-fallback=true
+  PRIVACY step=lc-update searched=5 bytes=255633 pass
+  advanced in block 407 to slot 15616800 block 26377196
+  MEM step=update max_rss_bytes=9388736512
+  FEE step=lc-update-charged reserve=8981193 refund=3454305 swept=3333770 charged=5526888 public_cycles=57034 base_fee_exec=8 base_fee_stor=8
+  finalized slot 15616800 block 26377196; period 1906; next committee known true; latest record at 35rk5SrYtLTEeHo3Zbc6YQqz3jRub8XX3xFaJC6AXmki (written true), latest block 26377196
+  MEM step=show max_rss_bytes=74661888
+
+[1;34m==>[0m Fetching a WETH storage proof at block 26377196
+  proof from https://rpc.mevblocker.io: 9 account nodes, 7 storage nodes, value 0x323b77ba937a0c30399
+
+[1;34m==>[0m Public attestation
+  DRYRUN step=lc-attest-public case=honest verdict=holds
+  TIME step=lc-attest-public case=honest submit_s=0.0 included_s=12.2
+  FEE step=lc-attest-public tx=065bb729a88844f323ee591940a470e46f8df9b4db1109d5cb7ca217c5e6ff47 block=408 charged=16060112 bytes=7514 stor_gas=7514 exec_gas=2000000 exec_gas_remainder=0 gas_limit=2000000 tip=0 base_fee_exec=8 base_fee_stor=8 base_fees_steady=true
+  STATUS step=lc-attest-public block=408 reverted=true
+  ATTEST step=lc-attest-public case=honest outcome=reverted
+  MEM step=attest-public max_rss_bytes=75317248
+error: expected outcome accepted, got reverted
+exit 1

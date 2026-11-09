@@ -93,5 +93,10 @@ client dry-runs them first.
 - **A fresh cargo target dir can fail on `rust-rapidsnark`**, a LEZ dependency that downloads a
   library at build time; a 504 from its server is transient. Reusing a built target dir avoids it.
 - **rust-analyzer holds the target-dir lock** while it builds; a second cargo waits silently.
+- **Keccak must go through `tiny-keccak`** (`alloy-primitives` feature `tiny-keccak`), the crate
+  the guest patches with RISC Zero's accelerated fork. alloy's default backend runs in software:
+  an attestation cost 2.03M cycles and overran the 2M gas limit; accelerated, 0.30M.
+- **The dry run checks logic, not gas.** A public attestation that overruns its gas limit
+  reverts even when the dry run said it holds; `tests/cost.rs` measures each message's cycles.
 - macOS's `seq` prints large numbers as `2.6e+07`; count with a bash loop.
 - RPC nodes shorten quantities in `eth_getProof` (`0x4a8`); the parser left-pads them.

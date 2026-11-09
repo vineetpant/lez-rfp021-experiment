@@ -50,10 +50,23 @@ mainnet (Fulu), and it targets risc0 2.0 and a Solidity verifier.
 
 ## Status
 
-- **Works:** a hello-world program on LEZ `v0.4.0-rc1`, deployed and called publicly and
-  privately, with fees measured from balances, on a native local devnet.
-- **In progress:** the light-client program on Helios, its tests, and its runs on the node with
-  real proofs. Every figure in the proposal marked ⟨measure⟩ comes from those runs.
+Working end to end on a LEZ `v0.4.0-rc1` node with real proofs, against live mainnet (9 Nov
+2026): Init from a live checkpoint, a committee handoff and a finality update, public and private
+attestations at the record and at older blocks (EIP-2935 and a parent-hash chain), and every
+broken attestation refused. 30 native tests pass, including the verifier against Helios.
+
+| On the node, real proofs, reference laptop (M3 Pro, 18 GB, CPU) | Time | Peak memory | Charge |
+|---|---:|---:|---:|
+| Init (public) | one block | — | 11,194,336 |
+| Update, committee handoff (proven by the operator) | 36.7 min | 8.4 GB | 5,333,856 |
+| Update, finality | 35.6 min | 8.7 GB | 5,526,600 |
+| Attestation, public, at the record | one block | — | 2,469,032 |
+| Attestation, public, 1,000 blocks back (EIP-2935) | one block | — | 4,504,320 |
+| Attestation, private (proven by the consumer), at the record or older | 14.2–15.2 min | 7.3–7.8 GB | 5,232,864 |
+| A refused public attestation | one block | — | 16,060,112 (its whole gas limit) |
+
+Details, cycles, conditions and the derived costs (tracking, latency, storage) are in
+[rfp-021/results.md](rfp-021/results.md).
 
 ## Run it
 
