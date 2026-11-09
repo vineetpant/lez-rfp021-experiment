@@ -14,7 +14,9 @@ helios = ["dep:helios-consensus-core", "dep:ethereum_ssz", "dep:serde", "dep:eyr
 
 [dependencies]
 lee_core = { git = "https://github.com/logos-blockchain/logos-execution-zone.git", tag = "v0.4.0-rc1" }
-alloy-primitives = "1.7"
+# `tiny-keccak`: Keccak through the crate the guest patches with RISC Zero's accelerated fork;
+# alloy's default backend runs in software and costs ~10x the cycles in the zkVM.
+alloy-primitives = { version = "1.7", features = ["tiny-keccak"] }
 alloy-rlp = "0.3"
 alloy-trie = "0.9"
 alloy-consensus = "2.5"

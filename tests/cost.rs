@@ -65,3 +65,31 @@ fn update_cycles() {
         Err(e) => panic!("Update: {e}"),
     }
 }
+
+#[test]
+fn attest_cycles() {
+    use eth_lc_types::statement::{Claim, Condition, Fact, Op, Subject};
+    use eth_lc_types::{RecordState, record_account};
+    let chain = mainnet();
+    let (mut steps, _) = support::steps(&chain);
+    let s = steps.pop().unwrap();
+    let u = oracle::update(&s.update);
+    let record = eth_lc_types::record_of(&chain.cfg, &u.finalized, None, 512).unwrap();
+    let (instance, program) = (AccountId::new([7; 32]), AccountId::new([9; 32]));
+    let proof = lez_hello_world::chain::storage_proof(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/data/mainnet-1904/getproof-26376237.json")).unwrap();
+    let claim = Claim { chain_id: 1, fact: Fact::Storage(proof), conditions: vec![Condition { subject: Subject::StorageValue, op: Op::Greater, rhs: [0; 32] }] };
+    let input = ReceiveInput {
+        receiver: Actor::new(record_account(&program, &instance, record.slot), program),
+        from: None,
+        is_authorized: false,
+        pre_state: ActorState::from(borsh::to_vec(&RecordState { instance, record }).unwrap()),
+        message: Program::serialize_message(&LcMsg::Attest { instance, claim, ancestry: None, reply: false }).unwrap(),
+    };
+    let mut builder = ExecutorEnv::builder();
+    builder.session_limit(Some(PROBE));
+    Program::write_receive_input(&input, &mut builder).unwrap();
+    match default_executor().execute(builder.build().unwrap(), &elf()) {
+        Ok(info) => println!("Attest (storage slot): {} cycles", info.cycles()),
+        Err(e) => panic!("Attest: {e:#}"),
+    }
+}
