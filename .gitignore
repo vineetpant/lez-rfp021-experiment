@@ -5,3 +5,4 @@
 target-types/
 lc/guest/target/
 target
+target-tests/

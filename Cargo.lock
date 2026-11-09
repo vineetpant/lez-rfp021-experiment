@@ -4873,6 +4873,7 @@ version = "0.1.0"
 dependencies = [
  "alloy-primitives",
  "anyhow",
+ "bls12_381",
  "borsh",
  "common",
  "eth-lc-types",
@@ -4883,7 +4884,9 @@ dependencies = [
  "sequencer_service_rpc",
  "serde_cbor",
  "serde_json",
+ "sha2 0.9.9",
  "tokio",
+ "tree_hash 0.10.0",
  "wallet",
 ]
 

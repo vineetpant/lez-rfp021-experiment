@@ -36,3 +36,9 @@ tokio = { version = "1.50", features = ["macros", "rt-multi-thread", "time"] }
 # program_loader_core = { path = "../logos-execution-zone/lez/programs/program_loader/core" }
 # common = { path = "../logos-execution-zone/lez/common" }
 # sequencer_service_rpc = { path = "../logos-execution-zone/lez/sequencer/service/rpc" }
+
+[dev-dependencies]
+# The adversarial tests sign a fabricated chain with keys they hold, and recompute its SSZ roots.
+bls12_381 = { version = "0.8", features = ["experimental"] }
+sha2_09 = { package = "sha2", version = "0.9" }
+tree_hash = "0.10"
