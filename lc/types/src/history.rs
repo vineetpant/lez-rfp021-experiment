@@ -11,7 +11,7 @@
 //!   its child's `parentHash`, starting from the anchor's own block hash. It depends on nothing
 //!   but header hashes, so it covers any distance and any chain, at a cost that grows with it.
 
-use crate::error::Error;
+use crate::error::Refusal;
 use crate::mpt::{StorageProof, verify_storage};
 use crate::HeaderRecord;
 use alloy_consensus::Header;
@@ -41,36 +41,36 @@ pub fn history_slot(number: u64) -> [u8; 32] {
     slot
 }
 
-fn header(rlp: &[u8]) -> Result<Header, Error> {
-    Header::decode(&mut &rlp[..]).map_err(|_| Error::BadExecutionBranch)
+fn header(rlp: &[u8]) -> Result<Header, Refusal> {
+    Header::decode(&mut &rlp[..]).map_err(|_| Refusal::InvalidExecutionProof)
 }
 
 /// The record of an earlier block, derived from `anchor` through `ancestry`. It carries the
 /// target's execution fields; its beacon fields are zero, because nothing here proves them.
-pub fn target_record(anchor: &HeaderRecord, ancestry: &Ancestry) -> Result<HeaderRecord, Error> {
+pub fn target_record(anchor: &HeaderRecord, ancestry: &Ancestry) -> Result<HeaderRecord, Refusal> {
     let (rlp, hash) = match ancestry {
         Ancestry::Eip2935 { proof, header: rlp } => {
             if proof.address != HISTORY_ADDRESS {
-                return Err(Error::BadInclusion);
+                return Err(Refusal::InvalidInclusionProof);
             }
             verify_storage(&anchor.state_root, proof)?;
             let number = header(rlp)?.number;
             // The slot is the target's, and the target is inside the window the anchor's state
             // keeps, so the hash in that slot is the target's and not a later block's.
             if proof.slot != history_slot(number) || number >= anchor.block_number || anchor.block_number - number > HISTORY_WINDOW {
-                return Err(Error::BadInclusion);
+                return Err(Refusal::InvalidInclusionProof);
             }
             (rlp, proof.value)
         }
         Ancestry::ParentChain { headers } => {
-            let (first, rest) = headers.split_first().ok_or(Error::Malformed)?;
+            let (first, rest) = headers.split_first().ok_or(Refusal::MalformedInput)?;
             if rest.is_empty() || keccak256(first).0 != anchor.block_hash {
-                return Err(Error::BadExecutionBranch);
+                return Err(Refusal::InvalidExecutionProof);
             }
             let mut child = first;
             for h in rest {
                 if keccak256(h) != header(child)?.parent_hash {
-                    return Err(Error::BadExecutionBranch);
+                    return Err(Refusal::InvalidExecutionProof);
                 }
                 child = h;
             }
@@ -78,7 +78,7 @@ pub fn target_record(anchor: &HeaderRecord, ancestry: &Ancestry) -> Result<Heade
         }
     };
     if keccak256(rlp).0 != hash {
-        return Err(Error::BadExecutionBranch);
+        return Err(Refusal::InvalidExecutionProof);
     }
     let target = header(rlp)?;
     Ok(HeaderRecord {

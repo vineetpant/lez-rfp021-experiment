@@ -53,7 +53,7 @@ use std::{collections::BTreeMap, time::Instant};
 
 use common::transaction::LeeTransaction;
 use eth_lc_types::history::{Ancestry, history_slot, target_record};
-use eth_lc_types::statement::{self, Cmp, Field, Predicate, Proof, Query};
+use eth_lc_types::statement::{self, Op, Subject, Condition, Fact, Claim};
 use eth_lc_types::oracle::{self, AnyUpdate};
 use eth_lc_types::{HeaderRecord, Instance, LcMsg, RecordState, Store, core, record_account, record_of, record_seed};
 use lee::{
@@ -176,9 +176,9 @@ fn next_update_in(chain: &Chain, store: &Store) -> anyhow::Result<NextUpdate> {
 /// An `eth_getProof` response as a statement that the slot holds a nonzero value.
 /// The query an attestation sends: the slot is nonzero, by its `eth_getProof` proof. The
 /// negative cases break it one way each.
-fn storage_query(getproof: &str, case: &str) -> anyhow::Result<Query> {
+fn storage_claim(getproof: &str, case: &str) -> anyhow::Result<Claim> {
     let mut proof = storage_proof(&abs(getproof)?)?;
-    let mut cmp = Cmp::Gt;
+    let mut op = Op::Greater;
     match case {
         "honest" | "unheld-record" | "history" | "history-chain" | "history-forged" => {}
         "tampered-proof" => {
@@ -187,13 +187,13 @@ fn storage_query(getproof: &str, case: &str) -> anyhow::Result<Query> {
             *leaf.last_mut().ok_or_else(|| anyhow::anyhow!("empty proof node"))? ^= 1;
         }
         // The slot is nonzero, so "equals zero" is false.
-        "false-claim" => cmp = Cmp::Eq,
+        "false-claim" => op = Op::Equal,
         other => anyhow::bail!("unknown attestation case {other}\n{USAGE}"),
     }
-    Ok(Query {
+    Ok(Claim {
         chain_id: CHAIN_ID,
-        proof: Proof::Storage(proof),
-        predicates: vec![Predicate { field: Field::SlotValue, cmp, value: [0; 32] }],
+        fact: Fact::Storage(proof),
+        conditions: vec![Condition { subject: Subject::StorageValue, op, rhs: [0; 32] }],
     })
 }
 
@@ -313,8 +313,8 @@ async fn report_published<C: wallet::WalletSequencerClient>(
 
 /// What a storage attestation must keep private: the account, the slot, and the proof leaves,
 /// which hold the account's state and the slot's value.
-fn query_secrets(query: &Query) -> Vec<(String, Vec<u8>)> {
-    let Proof::Storage(p) = &query.proof else { return vec![] };
+fn query_secrets(claim: &Claim) -> Vec<(String, Vec<u8>)> {
+    let Fact::Storage(p) = &claim.fact else { return vec![] };
     let mut out = vec![("queried address".to_owned(), p.address.to_vec()), ("queried slot".to_owned(), p.slot.to_vec())];
     out.extend(p.account_proof.last().map(|n| ("account leaf".to_owned(), n.clone())));
     out.extend(p.storage_proof.last().map(|n| ("storage leaf".to_owned(), n.clone())));
@@ -482,7 +482,7 @@ async fn main() -> anyhow::Result<()> {
         "attest-public" => {
             let (program, instance, getproof, payer) = (id(arg(1)?)?, id(arg(2)?)?, arg(3)?, id(arg(4)?)?);
             let case = a.get(5).map_or("honest", String::as_str);
-            let query = storage_query(getproof, case)?;
+            let claim = storage_claim(getproof, case)?;
             // The dry run: the check `Attest` makes, run here first against the record the
             // instance would use. A refused public attestation is charged its whole gas limit,
             // so an honest client stops on a refusal. The negative cases are sent anyway, to
@@ -494,7 +494,7 @@ async fn main() -> anyhow::Result<()> {
                 None => Ok(held.record.clone()),
                 Some(a) => target_record(&held.record, a),
             }
-            .and_then(|target| statement::evaluate(&target, &query))
+            .and_then(|target| statement::check(&target, &claim))
             .map_or_else(|e| format!("{e:?}"), |_| "holds".to_owned());
             println!("DRYRUN step=lc-attest-public case={case} verdict={verdict}");
             if verdict != "holds" && !is_negative(case) {
@@ -502,7 +502,7 @@ async fn main() -> anyhow::Result<()> {
                 return Ok(());
             }
             // `Attest` goes to the record account itself: one read, whatever the number of records.
-            let message = LcMsg::Attest { instance, query, ancestry, reply: false };
+            let message = LcMsg::Attest { instance, claim, ancestry, reply: false };
             let account = record_mention(program, instance, slot);
             let before = fees::snapshot(&client, payer).await?;
             // Nothing is proven locally: the sequencer runs the check. So the time is submission
@@ -543,12 +543,12 @@ async fn main() -> anyhow::Result<()> {
                 record.slot += 1;
             }
             println!("attesting privately against block {} (slot {}), case {case}", record.block_number, record.slot);
-            let query = storage_query(getproof, case)?;
-            let mut secrets = query_secrets(&query);
+            let claim = storage_claim(getproof, case)?;
+            let mut secrets = query_secrets(&claim);
             secrets.extend(ancestry_secrets(&ancestry));
             secrets.push(("payer".to_owned(), payer.as_ref().to_vec()));
             let slot = record.slot;
-            let message = LcMsg::AttestPrivate { instance: Actor::new(instance, program), record, query, ancestry };
+            let message = LcMsg::AttestPrivate { instance: Actor::new(instance, program), record, claim, ancestry };
             let programs = ProgramCatalog::from([(program, Program::new(bytecode.into())?)]);
             let record_id = record_account(&program, &instance, slot);
             let accounts = vec![

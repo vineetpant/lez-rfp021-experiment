@@ -1,47 +1,41 @@
 //! Every refusal is one of these codes, the same in the program, the client's dry run and the
-//! docs (U.5).
+//! docs. They follow the failure modes RFP-021's U.5 lists, grouped by where they arise: an
+//! update or bootstrap (1xx), an attestation (2xx), or the input itself.
 
 use borsh::{BorshDeserialize, BorshSerialize};
-#[cfg(feature = "helios")]
-use helios_consensus_core::errors::ConsensusError;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 #[borsh(use_discriminant = true)]
-#[repr(u8)]
-pub enum Error {
-    Malformed = 1,
-    NotFinalized = 2,
-    BadSignature = 3,
-    HandoffNotVerified = 4,
-    BelowParticipation = 5,
-    CheckpointStale = 6,
-    BadInclusion = 7,
-    PredicateFalse = 8,
-    ChainMismatch = 9,
-    AlreadyApplied = 10,
-    BadExecutionBranch = 11,
-    BadCommitteeBranch = 12,
-    CommitteeMismatch = 13,
-    CheckpointMismatch = 14,
-}
+#[repr(u16)]
+pub enum Refusal {
+    /// The input doesn't decode, or asks for something it doesn't carry.
+    MalformedInput = 1,
 
-#[cfg(feature = "helios")]
-impl Error {
-    /// The code for a refusal from Helios's consensus checks.
-    pub fn from_helios(e: &eyre::Report) -> Self {
-        match e.downcast_ref::<ConsensusError>() {
-            Some(ConsensusError::InsufficientParticipation) => Self::BelowParticipation,
-            Some(ConsensusError::InvalidPeriod) => Self::HandoffNotVerified,
-            Some(ConsensusError::NotRelevant) => Self::AlreadyApplied,
-            Some(ConsensusError::InvalidFinalityProof) => Self::NotFinalized,
-            Some(ConsensusError::InvalidNextSyncCommitteeProof | ConsensusError::InvalidCurrentSyncCommitteeProof) => {
-                Self::BadCommitteeBranch
-            }
-            Some(ConsensusError::InvalidExecutionPayloadProof) => Self::BadExecutionBranch,
-            Some(ConsensusError::InvalidSignature) => Self::BadSignature,
-            Some(ConsensusError::InvalidHeaderHash(..)) => Self::CheckpointMismatch,
-            Some(ConsensusError::CheckpointTooOld) => Self::CheckpointStale,
-            _ => Self::Malformed,
-        }
-    }
+    /// The finalized header isn't proven under the attested header's state.
+    UnfinalizedHeader = 100,
+    /// The sync-committee signature doesn't verify.
+    InvalidSignature = 101,
+    /// Fewer than 2/3 of the committee signed.
+    InsufficientSigners = 102,
+    /// The update is signed by, or hands off to, a committee the store didn't verify.
+    UnverifiedHandoff = 103,
+    /// The committee keys supplied don't hash to the root the store holds.
+    CommitteeKeysMismatch = 104,
+    /// A committee isn't proven under the header's state.
+    InvalidCommitteeProof = 105,
+    /// A header's execution payload or block hash isn't proven under its body.
+    InvalidExecutionProof = 106,
+    /// The store is past its weak-subjectivity bound; the instance is replaced, not advanced.
+    StaleStore = 107,
+    /// The update doesn't advance the store: already applied, or older.
+    UpdateNotNewer = 108,
+    /// The bootstrap header doesn't hash to the checkpoint.
+    CheckpointRootMismatch = 120,
+
+    /// The inclusion proof doesn't verify against the record's root.
+    InvalidInclusionProof = 200,
+    /// The proof verifies, but a condition on the value doesn't hold.
+    ConditionUnsatisfied = 201,
+    /// The claim names another chain than the record's.
+    WrongChain = 202,
 }

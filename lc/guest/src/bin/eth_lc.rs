@@ -9,7 +9,7 @@
 //! `record_account` derives from the instance and the slot, and never changed. A record account
 //! refuses to act unless it sits at that address, so a record can't be planted anywhere else.
 //!
-//! Every refusal panics with its typed error (`eth_lc_types::error::Error`), which the wallet's
+//! Every refusal panics with its typed error (`eth_lc_types::error::Refusal`), which the wallet's
 //! local run reports before anything is proven or sent.
 
 use eth_lc_types::history::{Ancestry, target_record};
@@ -42,13 +42,13 @@ fn held_record(input: &ReceiveInput) -> RecordState {
     held
 }
 
-/// The statement for `query`, proven against `record` or an earlier block it reaches.
-fn attest(record: &HeaderRecord, query: &statement::Query, ancestry: Option<Ancestry>) -> Statement {
+/// The statement for `claim`, proven against `record` or an earlier block it reaches.
+fn attest(record: &HeaderRecord, claim: &statement::Claim, ancestry: Option<Ancestry>) -> Statement {
     let target = match ancestry {
         None => record.clone(),
         Some(a) => target_record(record, &a).unwrap_or_else(|e| panic!("the ancestry verifies: {e:?}")),
     };
-    statement::evaluate(&target, query).unwrap_or_else(|e| panic!("the statement holds: {e:?}"))
+    statement::check(&target, claim).unwrap_or_else(|e| panic!("the statement holds: {e:?}"))
 }
 
 fn handle(input: &ReceiveInput) -> Response {
@@ -105,10 +105,10 @@ fn handle(input: &ReceiveInput) -> Response {
             Response::set_state(write_once(input.pre_state.as_ref(), data))
         }
 
-        LcMsg::Attest { instance, query, ancestry, reply } => {
+        LcMsg::Attest { instance, claim, ancestry, reply } => {
             let held = held_record(input);
             assert_eq!(held.instance, instance, "a record of another instance");
-            let statement = attest(&held.record, &query, ancestry);
+            let statement = attest(&held.record, &claim, ancestry);
             let event = ProgramEvent { selector: selector("Attested(bytes32,uint64,uint64)"), data: borsh::to_vec(&statement).unwrap() };
             let response = Response::keep_state().event(event);
             match (reply, input.from) {
@@ -118,8 +118,8 @@ fn handle(input: &ReceiveInput) -> Response {
             }
         }
 
-        LcMsg::AttestPrivate { instance, record, query, ancestry } => {
-            attest(&record, &query, ancestry);
+        LcMsg::AttestPrivate { instance, record, claim, ancestry } => {
+            attest(&record, &claim, ancestry);
             let to = record_actor(input, &instance.account_id, record.slot);
             Response::keep_state().send_sync(to, &LcMsg::CheckRecord { instance: instance.account_id, record })
         }

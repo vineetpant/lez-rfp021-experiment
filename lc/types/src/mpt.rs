@@ -5,7 +5,7 @@
 //! account's fields, the slot's value, the receipt. The proof then establishes exactly that
 //! value at that key, or fails.
 
-use crate::error::Error;
+use crate::error::Refusal;
 use crate::{Root, b256};
 use alloy_consensus::ReceiptEnvelope;
 use alloy_primitives::{Address, B256, Bytes, U256, keccak256};
@@ -39,7 +39,7 @@ fn nodes(proof: &[Vec<u8>]) -> Vec<Bytes> {
 
 /// Checks `p` under `state_root`: the account is in the state trie with exactly these fields,
 /// and the slot holds exactly this value (a zero value is proven absent, as Ethereum stores it).
-pub fn verify_storage(state_root: &Root, p: &StorageProof) -> Result<(), Error> {
+pub fn verify_storage(state_root: &Root, p: &StorageProof) -> Result<(), Refusal> {
     let account = TrieAccount {
         nonce: p.account.nonce,
         balance: U256::from_be_bytes(p.account.balance),
@@ -49,7 +49,7 @@ pub fn verify_storage(state_root: &Root, p: &StorageProof) -> Result<(), Error> 
     let mut encoded = Vec::new();
     account.encode(&mut encoded);
     let key = Nibbles::unpack(keccak256(p.address));
-    verify_proof(b256(state_root), key, Some(encoded), &nodes(&p.account_proof)).map_err(|_| Error::BadInclusion)?;
+    verify_proof(b256(state_root), key, Some(encoded), &nodes(&p.account_proof)).map_err(|_| Refusal::InvalidInclusionProof)?;
 
     let value = U256::from_be_bytes(p.value);
     let expected = (!value.is_zero()).then(|| {
@@ -58,7 +58,7 @@ pub fn verify_storage(state_root: &Root, p: &StorageProof) -> Result<(), Error> 
         v
     });
     let key = Nibbles::unpack(keccak256(p.slot));
-    verify_proof(account.storage_root, key, expected, &nodes(&p.storage_proof)).map_err(|_| Error::BadInclusion)
+    verify_proof(account.storage_root, key, expected, &nodes(&p.storage_proof)).map_err(|_| Refusal::InvalidInclusionProof)
 }
 
 /// One log of a receipt under a receipts root: the receipt, EIP-2718 encoded as it sits in the
@@ -81,14 +81,14 @@ pub struct Log {
 }
 
 /// Checks `p` under `receipts_root` and returns the log it points at.
-pub fn verify_receipt_log(receipts_root: &Root, p: &ReceiptProof) -> Result<Log, Error> {
+pub fn verify_receipt_log(receipts_root: &Root, p: &ReceiptProof) -> Result<Log, Refusal> {
     let mut index = Vec::new();
     p.tx_index.encode(&mut index);
     let key = Nibbles::unpack(&index);
-    verify_proof(b256(receipts_root), key, Some(p.receipt.clone()), &nodes(&p.proof)).map_err(|_| Error::BadInclusion)?;
+    verify_proof(b256(receipts_root), key, Some(p.receipt.clone()), &nodes(&p.proof)).map_err(|_| Refusal::InvalidInclusionProof)?;
     let receipt = <ReceiptEnvelope as alloy_eips::eip2718::Decodable2718>::decode_2718(&mut p.receipt.as_slice())
-        .map_err(|_| Error::Malformed)?;
-    let log = receipt.logs().get(p.log_index as usize).ok_or(Error::Malformed)?;
+        .map_err(|_| Refusal::MalformedInput)?;
+    let log = receipt.logs().get(p.log_index as usize).ok_or(Refusal::MalformedInput)?;
     Ok(Log {
         success: receipt.status(),
         address: <Address as Into<[u8; 20]>>::into(log.address),

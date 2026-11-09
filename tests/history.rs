@@ -6,7 +6,7 @@
 //!   cargo test --release --test history
 
 use eth_lc_types::HeaderRecord;
-use eth_lc_types::error::Error;
+use eth_lc_types::error::Refusal;
 use eth_lc_types::history::{Ancestry, HISTORY_ADDRESS, history_slot, target_record};
 use eth_lc_types::mpt::{Account, StorageProof};
 use lez_hello_world::chain::hex_decode;
@@ -102,7 +102,7 @@ fn eip2935_refuses_a_forged_header_or_slot_or_contract() {
     let mut header = rlp(TARGET);
     let last = header.len() - 1;
     header[last] ^= 1;
-    assert_eq!(target_record(&anchor, &Ancestry::Eip2935 { proof: history_proof(), header }), Err(Error::BadExecutionBranch));
+    assert_eq!(target_record(&anchor, &Ancestry::Eip2935 { proof: history_proof(), header }), Err(Refusal::InvalidExecutionProof));
     // The real header, with the slot of another block.
     let mut other = history_proof();
     other.slot[31] ^= 1;
@@ -110,7 +110,7 @@ fn eip2935_refuses_a_forged_header_or_slot_or_contract() {
     // The same proof, claimed for another contract.
     let mut contract = history_proof();
     contract.address[19] ^= 1;
-    assert_eq!(target_record(&anchor, &Ancestry::Eip2935 { proof: contract, header: rlp(TARGET) }), Err(Error::BadInclusion));
+    assert_eq!(target_record(&anchor, &Ancestry::Eip2935 { proof: contract, header: rlp(TARGET) }), Err(Refusal::InvalidInclusionProof));
     assert_eq!(history_proof().address, HISTORY_ADDRESS);
 }
 
@@ -132,6 +132,6 @@ fn parent_chain_refuses_a_broken_link_or_another_anchor() {
     let anchor = record(TARGET + 3);
     let Ancestry::ParentChain { mut headers } = chain(TARGET + 3) else { unreachable!() };
     headers.swap(1, 2);
-    assert_eq!(target_record(&anchor, &Ancestry::ParentChain { headers }), Err(Error::BadExecutionBranch));
-    assert_eq!(target_record(&record(ANCHOR), &chain(TARGET + 3)), Err(Error::BadExecutionBranch));
+    assert_eq!(target_record(&anchor, &Ancestry::ParentChain { headers }), Err(Refusal::InvalidExecutionProof));
+    assert_eq!(target_record(&record(ANCHOR), &chain(TARGET + 3)), Err(Refusal::InvalidExecutionProof));
 }

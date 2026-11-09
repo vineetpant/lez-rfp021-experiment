@@ -15,7 +15,7 @@
 //! (`BelowParticipation`), because only finalized headers are applied and the spec applies those
 //! only with a supermajority; and it must advance the store (`AlreadyApplied`, R.8).
 
-use crate::error::Error;
+use crate::error::Refusal;
 use crate::{ChainConfig, Root};
 use borsh::{BorshDeserialize, BorshSerialize};
 use sha2::{Digest, Sha256};
@@ -167,9 +167,9 @@ pub fn payload_root(p: &PayloadHeader) -> Root {
 }
 
 /// The SSZ root of a committee, from its SSZ bytes.
-pub fn committee_root(bytes: &[u8]) -> Result<Root, Error> {
+pub fn committee_root(bytes: &[u8]) -> Result<Root, Refusal> {
     if bytes.len() != COMMITTEE_BYTES {
-        return Err(Error::Malformed);
+        return Err(Refusal::MalformedInput);
     }
     let key = |k: &[u8]| sha256(&k[..32], &chunk(&k[32..48]));
     let keys: Vec<Root> = bytes[..COMMITTEE * 48].chunks(48).map(key).collect();
@@ -221,17 +221,17 @@ fn state_positions(cfg: &ChainConfig, slot: u64) -> [(u64, usize); 3] {
 
 /// `Init`: the store of an instance from a bootstrap whose header hashes to `checkpoint`, and the
 /// bootstrap committee's keys.
-pub fn bootstrap(cfg: &ChainConfig, checkpoint: &Root, b: &Bootstrap, committee: &[u8]) -> Result<Store, Error> {
+pub fn bootstrap(cfg: &ChainConfig, checkpoint: &Root, b: &Bootstrap, committee: &[u8]) -> Result<Store, Refusal> {
     if beacon_root(&b.header.beacon) != *checkpoint {
-        return Err(Error::CheckpointMismatch);
+        return Err(Refusal::CheckpointRootMismatch);
     }
     if !is_valid_header(cfg, &b.header) {
-        return Err(Error::BadExecutionBranch);
+        return Err(Refusal::InvalidExecutionProof);
     }
     let root = committee_root(committee)?;
     let (index, depth) = state_positions(cfg, b.header.beacon.slot)[1];
     if !is_valid_branch(root, &b.committee_branch, depth, index, &b.header.beacon.state_root) {
-        return Err(Error::BadCommitteeBranch);
+        return Err(Refusal::InvalidCommitteeProof);
     }
     Ok(Store { finalized: b.header.beacon.clone(), current_committee: root, next_committee: None })
 }
@@ -287,45 +287,45 @@ pub fn verify_signature(committee: &[u8], bits: &[u8; 64], msg: &Root, signature
 /// `validate_light_client_update` then `apply_light_client_update`, for a finalized header: the
 /// store after `u`, and whether it finalized a newer header. `current` and `next` are the keys of
 /// the committees `store` holds the roots of.
-pub fn update(cfg: &ChainConfig, store: &Store, u: &Update, current: &[u8], next: Option<&[u8]>) -> Result<(Store, bool), Error> {
+pub fn update(cfg: &ChainConfig, store: &Store, u: &Update, current: &[u8], next: Option<&[u8]>) -> Result<(Store, bool), Refusal> {
     // Past the weak-subjectivity bound the instance is replaced, not advanced (F.10).
     if cfg.slot_time(u.signature_slot) > cfg.slot_time(store.finalized.slot) + cfg.max_store_age {
-        return Err(Error::CheckpointStale);
+        return Err(Refusal::StaleStore);
     }
     if signers(&u.bits) * 3 < COMMITTEE * 2 {
-        return Err(Error::BelowParticipation);
+        return Err(Refusal::InsufficientSigners);
     }
     if !(u.signature_slot > u.attested.beacon.slot && u.attested.beacon.slot >= u.finalized.beacon.slot) {
-        return Err(Error::Malformed);
+        return Err(Refusal::MalformedInput);
     }
     let store_period = period(store.finalized.slot);
     let signature_period = period(u.signature_slot);
     let known_next = store.next_committee.is_some();
     if !(signature_period == store_period || (known_next && signature_period == store_period + 1)) {
-        return Err(Error::HandoffNotVerified);
+        return Err(Refusal::UnverifiedHandoff);
     }
     let attested_period = period(u.attested.beacon.slot);
     let learns_next = !known_next && u.next_committee.is_some() && attested_period == store_period;
     if u.finalized.beacon.slot <= store.finalized.slot && !learns_next {
-        return Err(Error::AlreadyApplied);
+        return Err(Refusal::UpdateNotNewer);
     }
 
     if !is_valid_header(cfg, &u.attested) || !is_valid_header(cfg, &u.finalized) {
-        return Err(Error::BadExecutionBranch);
+        return Err(Refusal::InvalidExecutionProof);
     }
     let [finality, _, next_position] = state_positions(cfg, u.attested.beacon.slot);
     if !is_valid_branch(beacon_root(&u.finalized.beacon), &u.finality_branch, finality.1, finality.0, &u.attested.beacon.state_root) {
-        return Err(Error::NotFinalized);
+        return Err(Refusal::UnfinalizedHeader);
     }
     let update_next = match &u.next_committee {
         None => None,
         Some((keys, branch)) => {
             let root = committee_root(keys)?;
             if !is_valid_branch(root, branch, next_position.1, next_position.0, &u.attested.beacon.state_root) {
-                return Err(Error::BadCommitteeBranch);
+                return Err(Refusal::InvalidCommitteeProof);
             }
             if attested_period == store_period && store.next_committee.is_some_and(|known| known != root) {
-                return Err(Error::HandoffNotVerified);
+                return Err(Refusal::UnverifiedHandoff);
             }
             Some(root)
         }
@@ -335,13 +335,13 @@ pub fn update(cfg: &ChainConfig, store: &Store, u: &Update, current: &[u8], next
     let (signer, signer_root) = if signature_period == store_period {
         (current, store.current_committee)
     } else {
-        (next.ok_or(Error::CommitteeMismatch)?, store.next_committee.ok_or(Error::HandoffNotVerified)?)
+        (next.ok_or(Refusal::CommitteeKeysMismatch)?, store.next_committee.ok_or(Refusal::UnverifiedHandoff)?)
     };
     if committee_root(signer)? != signer_root {
-        return Err(Error::CommitteeMismatch);
+        return Err(Refusal::CommitteeKeysMismatch);
     }
     if !verify_signature(signer, &u.bits, &signing_root(cfg, &u.attested.beacon, u.signature_slot), &u.signature) {
-        return Err(Error::BadSignature);
+        return Err(Refusal::InvalidSignature);
     }
 
     // `apply_light_client_update`.
@@ -349,7 +349,7 @@ pub fn update(cfg: &ChainConfig, store: &Store, u: &Update, current: &[u8], next
     let mut s = store.clone();
     if !known_next {
         if finalized_period != store_period {
-            return Err(Error::HandoffNotVerified);
+            return Err(Refusal::UnverifiedHandoff);
         }
         s.next_committee = update_next;
     } else if finalized_period == store_period + 1 {
@@ -361,7 +361,7 @@ pub fn update(cfg: &ChainConfig, store: &Store, u: &Update, current: &[u8], next
         s.finalized = u.finalized.beacon.clone();
     }
     if s == *store {
-        return Err(Error::AlreadyApplied);
+        return Err(Refusal::UpdateNotNewer);
     }
     Ok((s, advanced))
 }

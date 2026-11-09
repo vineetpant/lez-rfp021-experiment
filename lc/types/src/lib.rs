@@ -24,12 +24,12 @@ use alloy_consensus::Header as ExecutionHeader;
 use alloy_primitives::B256;
 use alloy_rlp::Decodable;
 use borsh::{BorshDeserialize, BorshSerialize};
-use error::Error;
+use error::Refusal;
 use history::Ancestry;
 use lee_core::account::{AccountId, Actor};
 use lee_core::program::PdaSeed;
 use sha2::{Digest, Sha256};
-use statement::{Query, Statement};
+use statement::{Claim, Statement};
 
 pub type Root = [u8; 32];
 
@@ -131,15 +131,15 @@ pub(crate) fn b256(r: &Root) -> B256 {
 /// The record of a verified finalized `header`. Before Gloas its execution fields are in the
 /// payload header the core proved under the body root; from Gloas only the block hash is, and
 /// `rlp`, the execution header that must hash to it, gives the rest.
-pub fn record_of(cfg: &ChainConfig, header: &core::Header, rlp: Option<&[u8]>, signers: u16) -> Result<HeaderRecord, Error> {
+pub fn record_of(cfg: &ChainConfig, header: &core::Header, rlp: Option<&[u8]>, signers: u16) -> Result<HeaderRecord, Refusal> {
     let (block_number, block_hash, state_root, receipts_root) = match &header.execution {
         core::Execution::Payload(p) => (p.block_number, p.block_hash, p.state_root, p.receipts_root),
         core::Execution::BlockHash(hash) => {
-            let rlp = rlp.ok_or(Error::BadExecutionBranch)?;
+            let rlp = rlp.ok_or(Refusal::InvalidExecutionProof)?;
             if alloy_primitives::keccak256(rlp).0 != *hash {
-                return Err(Error::BadExecutionBranch);
+                return Err(Refusal::InvalidExecutionProof);
             }
-            let e = ExecutionHeader::decode(&mut &rlp[..]).map_err(|_| Error::BadExecutionBranch)?;
+            let e = ExecutionHeader::decode(&mut &rlp[..]).map_err(|_| Refusal::InvalidExecutionProof)?;
             (e.number, *hash, e.state_root.0, e.receipts_root.0)
         }
     };
@@ -191,23 +191,23 @@ pub enum LcMsg {
     },
     /// Public, to a record account, only from this program: write `record` once.
     WriteRecord { instance: AccountId, record: HeaderRecord },
-    /// Public, to `instance`'s record account of the header to prove against: prove `query`,
+    /// Public, to `instance`'s record account of the header to prove against: prove `claim`,
     /// against that header or, through `ancestry`, an earlier block. Emits `Attested`, and with
     /// `reply` also sends it back to the calling actor.
     Attest {
         instance: AccountId,
-        query: Query,
+        claim: Claim,
         ancestry: Option<Ancestry>,
         reply: bool,
     },
-    /// Private, to the caller's own actor of this program: prove `query` against `record`, or
+    /// Private, to the caller's own actor of this program: prove `claim` against `record`, or
     /// an earlier block through `ancestry`, then have `instance`'s record account of that slot
     /// confirm it holds `record`. Only that check is published; the query, the proof and the
     /// statement stay in the caller's proof.
     AttestPrivate {
         instance: Actor,
         record: HeaderRecord,
-        query: Query,
+        claim: Claim,
         ancestry: Option<Ancestry>,
     },
     /// Public, to a record account, only from this program: refuse unless it is `instance`'s

@@ -13,7 +13,7 @@ mod support;
 use bls12_381::hash_to_curve::{ExpandMsgXmd, HashToCurve};
 use bls12_381::{G1Affine, G2Affine, G2Projective, Scalar};
 use eth_lc_types::core;
-use eth_lc_types::error::Error;
+use eth_lc_types::error::Refusal;
 use eth_lc_types::oracle::{self, AnyUpdate, Committee};
 use helios_consensus_core::types::{BeaconBlockHeader, ExecutionPayloadHeader, LightClientHeader};
 use serde_json::{Value, json};
@@ -50,13 +50,13 @@ fn last_step() -> Step {
 }
 
 /// The core's verdict and Helios's on `update` in place of `step`'s.
-fn both(step: &Step, update: &AnyUpdate) -> (Result<core::Store, Error>, bool) {
+fn both(step: &Step, update: &AnyUpdate) -> (Result<core::Store, Refusal>, bool) {
     let chain = mainnet();
     (step.apply_other(&chain, update).map(|(s, _)| s), step.helios(&chain, update).is_ok())
 }
 
 /// Refused by the core with `error`, and refused by Helios.
-fn refused(step: &Step, update: &AnyUpdate, error: Error) {
+fn refused(step: &Step, update: &AnyUpdate, error: Refusal) {
     let (core, helios) = both(step, update);
     assert_eq!(core.map(|_| ()), Err(error));
     assert!(!helios, "Helios accepted what the core refused with {error:?}");
@@ -178,10 +178,10 @@ fn vs1_fabricated_chain_is_rejected() {
     let mut step = last_step();
     let fake = fabricated(&forger);
     // With the real committee's keys, the forger's signature doesn't verify.
-    refused(&step, &fake, Error::BadSignature);
+    refused(&step, &fake, Refusal::InvalidSignature);
     // The forger's keys don't hash to the committee the store holds.
     step.current = forger.keys();
-    assert_eq!(step.apply_other(&mainnet(), &fake).map(|_| ()), Err(Error::CommitteeMismatch));
+    assert_eq!(step.apply_other(&mainnet(), &fake).map(|_| ()), Err(Refusal::CommitteeKeysMismatch));
 }
 
 #[test]
@@ -190,7 +190,7 @@ fn vs1_fabricated_checkpoint_is_rejected() {
     let mut b = oracle::bootstrap(&chain.bootstrap);
     b.header.beacon.state_root = [0xf0; 32];
     let committee = oracle::committee(chain.bootstrap.current_sync_committee());
-    assert_eq!(core::bootstrap(&chain.cfg, &chain.checkpoint, &b, &committee).map(|_| ()), Err(Error::CheckpointMismatch));
+    assert_eq!(core::bootstrap(&chain.cfg, &chain.checkpoint, &b, &committee).map(|_| ()), Err(Refusal::CheckpointRootMismatch));
 }
 
 // ---- Verification Security #2 ----
@@ -203,7 +203,7 @@ fn vs2_committee_never_handed_off_is_rejected() {
     let (current, next) = keys(&chain, &store);
     let update = last_step().update;
     let step = Step { store, helios, update: update.clone(), current, next };
-    refused(&step, &update, Error::HandoffNotVerified);
+    refused(&step, &update, Refusal::UnverifiedHandoff);
 }
 
 #[test]
@@ -211,7 +211,7 @@ fn vs2_forged_next_committee_is_rejected() {
     let step = steps(&mainnet()).0.into_iter().next().unwrap();
     let mut v = to_json(&step.update);
     inner(&mut v)["next_sync_committee"] = Forger::new().committee;
-    refused(&step, &from_json(v), Error::BadCommitteeBranch);
+    refused(&step, &from_json(v), Refusal::InvalidCommitteeProof);
 }
 
 #[test]
@@ -224,7 +224,7 @@ fn vs2_below_participation_is_rejected() {
         bits[i / 8] |= 1 << (i % 8);
     }
     inner(&mut v)["sync_aggregate"]["sync_committee_bits"] = json!(hex(&bits));
-    refused(&step, &from_json(v), Error::BelowParticipation);
+    refused(&step, &from_json(v), Refusal::InsufficientSigners);
 }
 
 #[test]
@@ -234,7 +234,7 @@ fn vs2_header_not_finalized_is_rejected() {
     let mut leaf = h32(&inner(&mut v)["finality_branch"][0]);
     leaf[0] ^= 1;
     inner(&mut v)["finality_branch"][0] = json!(hex(&leaf));
-    refused(&step, &from_json(v), Error::NotFinalized);
+    refused(&step, &from_json(v), Refusal::UnfinalizedHeader);
 }
 
 #[test]
@@ -243,7 +243,7 @@ fn vs2_tampered_execution_roots_are_rejected() {
     for field in ["state_root", "receipts_root"] {
         let mut v = to_json(&step.update);
         inner(&mut v)["finalized_header"]["execution"][field] = json!(hex(&[0xf0; 32]));
-        refused(&step, &from_json(v), Error::BadExecutionBranch);
+        refused(&step, &from_json(v), Refusal::InvalidExecutionProof);
     }
 }
 
@@ -254,7 +254,7 @@ fn vs2_update_under_another_chain_is_rejected() {
     let step = last_step();
     let mut chain = mainnet();
     chain.cfg.genesis_validators_root = [0xd8; 32];
-    assert_eq!(step.apply_other(&chain, &step.update).map(|_| ()), Err(Error::BadSignature));
+    assert_eq!(step.apply_other(&chain, &step.update).map(|_| ()), Err(Refusal::InvalidSignature));
     assert!(step.helios(&chain, &step.update).is_err(), "Helios refuses it too");
 }
 
@@ -266,13 +266,13 @@ fn tampered_signature_and_replayed_update_are_rejected() {
     let mut v = to_json(&step.update);
     let p = inner(&mut v)["attested_header"]["beacon"]["proposer_index"].as_str().unwrap().parse::<u64>().unwrap();
     inner(&mut v)["attested_header"]["beacon"]["proposer_index"] = json!((p ^ 1).to_string());
-    refused(&step, &from_json(v), Error::BadSignature);
+    refused(&step, &from_json(v), Refusal::InvalidSignature);
     // Applied once, then replayed on the store it produced.
     let chain = mainnet();
     let (after, _) = step.apply(&chain).unwrap();
     let helios_after = step.helios(&chain, &step.update).unwrap();
     let replay = Step { store: after, helios: helios_after, update: step.update.clone(), current: step.current.clone(), next: step.next.clone() };
-    refused(&replay, &step.update, Error::AlreadyApplied);
+    refused(&replay, &step.update, Refusal::UpdateNotNewer);
 }
 
 #[test]

@@ -3,7 +3,7 @@
 #![allow(dead_code)]
 
 use eth_lc_types::core::{self, Store};
-use eth_lc_types::error::Error;
+use eth_lc_types::error::Refusal;
 use eth_lc_types::oracle::{self, AnyUpdate};
 use helios_consensus_core::consensus_spec::MainnetConsensusSpec as Spec;
 use helios_consensus_core::types::LightClientStore;
@@ -26,12 +26,12 @@ pub struct Step {
 }
 
 impl Step {
-    pub fn apply(&self, chain: &Chain) -> Result<(Store, bool), Error> {
+    pub fn apply(&self, chain: &Chain) -> Result<(Store, bool), Refusal> {
         self.apply_other(chain, &self.update)
     }
 
     /// The core's verdict on `update` in place of this step's.
-    pub fn apply_other(&self, chain: &Chain, update: &AnyUpdate) -> Result<(Store, bool), Error> {
+    pub fn apply_other(&self, chain: &Chain, update: &AnyUpdate) -> Result<(Store, bool), Refusal> {
         core::update(&chain.cfg, &self.store, &oracle::update(update), &self.current, self.next.as_deref())
     }
 
