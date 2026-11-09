@@ -7,7 +7,7 @@
 mod support;
 
 use eth_lc_types::LcMsg;
-use eth_lc_types::verify::{cbor, committee_bytes};
+use eth_lc_types::oracle;
 use lee::{AccountId, Actor, ActorState, program::Program};
 use lee_core::program::ReceiveInput;
 use risc0_zkvm::{ExecutorEnv, default_executor};
@@ -38,8 +38,8 @@ fn run(message: &LcMsg) -> Result<u64, String> {
 #[test]
 fn init_fits_one_transaction() {
     let chain = mainnet();
-    let committee = committee_bytes(chain.bootstrap.current_sync_committee());
-    let init = LcMsg::Init { cfg: chain.cfg.clone(), checkpoint: chain.checkpoint, bootstrap: cbor(&chain.bootstrap), committee, rlp: None };
+    let committee = oracle::committee(chain.bootstrap.current_sync_committee());
+    let init = LcMsg::Init { cfg: chain.cfg.clone(), checkpoint: chain.checkpoint, bootstrap: oracle::bootstrap(&chain.bootstrap), committee, rlp: None };
     match run(&init) {
         Ok(cycles) => println!("Init: {cycles} cycles of a {CAP} cap"),
         Err(e) => panic!("Init: {e}"),
@@ -55,7 +55,7 @@ fn update_cycles() {
         instance: Actor::new(AccountId::new([7; 32]), AccountId::new([9; 32])),
         cfg: chain.cfg.clone(),
         store: s.store.clone(),
-        update: cbor(&s.update),
+        update: oracle::update(&s.update),
         current: s.current.clone(),
         next: s.next.clone(),
         rlp: None,

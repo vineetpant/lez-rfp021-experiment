@@ -14,7 +14,7 @@
 
 use eth_lc_types::history::{Ancestry, target_record};
 use eth_lc_types::statement::{self, Statement};
-use eth_lc_types::{HeaderRecord, Instance, LcMsg, RecordState, record_account, selector, verify};
+use eth_lc_types::{HeaderRecord, Instance, LcMsg, RecordState, core, record_account, record_of, selector};
 use lee_core::account::{AccountId, Actor};
 use lee_core::program::{ProgramEvent, ReceiveInput, Response, write_once};
 
@@ -58,19 +58,24 @@ fn handle(input: &ReceiveInput) -> Response {
             // Whoever holds the account chooses the checkpoint and the config. Without the
             // signature anyone could squat an account with a checkpoint of their choosing.
             assert!(input.is_authorized, "Init must be signed by the instance account");
-            let (store, latest) = verify::bootstrap(&cfg, &checkpoint, &bootstrap, &committee, rlp.as_deref())
+            let store = core::bootstrap(&cfg, &checkpoint, &bootstrap, &committee)
                 .unwrap_or_else(|e| panic!("the bootstrap verifies against the checkpoint: {e:?}"));
+            let latest = record_of(&cfg, &bootstrap.header, rlp.as_deref(), 0).unwrap_or_else(|e| panic!("the bootstrap header's record: {e:?}"));
             let state = Response::set_state(borsh::to_vec(&Instance { cfg, store, latest: latest.clone() }).unwrap());
             write_record(input, state, latest)
         }
 
         LcMsg::Update { instance, cfg, store, update, current, next, rlp } => {
-            let (next_store, record) = verify::update(&cfg, &store, &update, &current, next.as_deref(), rlp.as_deref())
-                .unwrap_or_else(|e| panic!("the update verifies: {e:?}"));
+            let (next_store, advanced) =
+                core::update(&cfg, &store, &update, &current, next.as_deref()).unwrap_or_else(|e| panic!("the update verifies: {e:?}"));
+            let record = advanced.then(|| {
+                record_of(&cfg, &update.finalized, rlp.as_deref(), core::signers(&update.bits) as u16)
+                    .unwrap_or_else(|e| panic!("the finalized header's record: {e:?}"))
+            });
             // A store goes stale `max_store_age` after its finalized slot. Bounding the
             // transaction there lets the sequencer's clock refuse an update to a stale store, on
             // top of the check against the update's own signature slot.
-            let stale_from = cfg.stale_from_ms(store.finalized_slot);
+            let stale_from = cfg.stale_from_ms(store.finalized.slot);
             Response::keep_state()
                 .send_sync(instance, &LcMsg::Advance { cfg_hash: cfg.hash(), prev: store, next: next_store, record })
                 .try_timestamp_window((None, Some(stale_from)))

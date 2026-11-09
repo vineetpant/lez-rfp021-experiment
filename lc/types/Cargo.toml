@@ -1,5 +1,6 @@
 # The eth_lc program's messages, state and checks, shared by the program, its client and the
-# tests, so the three can't drift apart. The consensus checks are Helios's; see README.md.
+# tests, so the three can't drift apart. The light-client checks are `core`; Helios is the
+# differential oracle the tests check them against (`helios` feature, host only).
 [package]
 name = "eth-lc-types"
 version = "0.1.0"
@@ -7,18 +8,22 @@ edition = "2024"
 license = "MIT OR Apache-2.0"
 publish = false
 
+[features]
+default = []
+helios = ["dep:helios-consensus-core", "dep:ethereum_ssz", "dep:serde", "dep:eyre"]
+
 [dependencies]
-helios-consensus-core = { git = "https://github.com/a16z/helios", rev = "2af9b41887e069144ee56cd710f3ddca195473f8" }
 lee_core = { git = "https://github.com/logos-blockchain/logos-execution-zone.git", tag = "v0.4.0-rc1" }
 alloy-primitives = "1.7"
 alloy-rlp = "0.3"
 alloy-trie = "0.9"
 alloy-consensus = "2.5"
 alloy-eips = "2.5"
+blst = "0.3.16"
 borsh = { version = "1.5", features = ["derive"] }
-serde = { version = "1", features = ["derive"] }
-serde_cbor = "0.11"
-eyre = "0.6"
-ethereum_ssz = "0.9"
 sha2 = "0.10"
-tree_hash = "0.10"
+
+helios-consensus-core = { git = "https://github.com/a16z/helios", rev = "2af9b41887e069144ee56cd710f3ddca195473f8", optional = true }
+ethereum_ssz = { version = "0.9", optional = true }
+serde = { version = "1", features = ["derive"], optional = true }
+eyre = { version = "0.6", optional = true }

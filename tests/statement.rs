@@ -15,8 +15,10 @@ use support::{mainnet, steps};
 fn record() -> HeaderRecord {
     let chain = mainnet();
     let (mut s, _) = steps(&chain);
-    let (_, record) = s.pop().unwrap().apply(&chain).unwrap();
-    record.expect("the finality update finalizes a new header")
+    let step = s.pop().unwrap();
+    let u = eth_lc_types::oracle::update(&step.update);
+    assert!(step.apply(&chain).unwrap().1, "the finality update finalizes a new header");
+    eth_lc_types::record_of(&chain.cfg, &u.finalized, None, eth_lc_types::core::signers(&u.bits) as u16).unwrap()
 }
 
 fn query(chain_id: u64, field: Field, cmp: Cmp) -> Query {

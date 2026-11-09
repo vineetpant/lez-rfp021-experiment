@@ -1,7 +1,7 @@
-//! The RFP's adversarial cases (Verification Security #1 and #2), run natively through the
-//! checks the program runs (`eth_lc_types::verify` over Helios `consensus-core`), on recorded
-//! mainnet (`tests/data/mainnet-1904`). Each case asserts the exact typed error, and each has an
-//! honest control that passes, so a refusal can't come from a broken fixture.
+//! The RFP's adversarial cases (Verification Security #1 and #2), run natively through the core
+//! the program runs, on recorded mainnet (`tests/data/mainnet-1904`). Each case asserts the core's
+//! exact typed error, and that Helios's `consensus-core` refuses it too; each has an honest
+//! control that both accept, so a refusal can't come from a broken fixture.
 //!
 //!   cargo test --release --test adversarial
 //!
@@ -12,12 +12,13 @@ mod support;
 
 use bls12_381::hash_to_curve::{ExpandMsgXmd, HashToCurve};
 use bls12_381::{G1Affine, G2Affine, G2Projective, Scalar};
+use eth_lc_types::core;
 use eth_lc_types::error::Error;
-use eth_lc_types::verify::{self, AnyUpdate, cbor, committee_bytes, committee_root};
+use eth_lc_types::oracle::{self, AnyUpdate, Committee};
 use helios_consensus_core::types::{BeaconBlockHeader, ExecutionPayloadHeader, LightClientHeader};
 use serde_json::{Value, json};
 use sha2_09::{Digest, Sha256};
-use support::{Step, keys, mainnet, steps};
+use support::{Step, boot, keys, mainnet, steps};
 use tree_hash::TreeHash;
 
 fn hex(b: &[u8]) -> String {
@@ -44,16 +45,21 @@ fn inner(v: &mut Value) -> &mut Value {
 
 /// The last recorded step: a finality update on top of the store two handoffs past the
 /// checkpoint.
-fn last_step() -> (eth_lc_types::Store, AnyUpdate, Vec<u8>, Option<Vec<u8>>) {
-    let chain = mainnet();
-    let (mut s, _) = steps(&chain);
-    let Step { store, update, current, next } = s.pop().unwrap();
-    (store, update, current, next)
+fn last_step() -> Step {
+    steps(&mainnet()).0.pop().unwrap()
 }
 
-fn apply(update: &AnyUpdate, store: &eth_lc_types::Store, current: &[u8], next: Option<&[u8]>) -> Result<eth_lc_types::Store, Error> {
+/// The core's verdict and Helios's on `update` in place of `step`'s.
+fn both(step: &Step, update: &AnyUpdate) -> (Result<core::Store, Error>, bool) {
     let chain = mainnet();
-    verify::update(&chain.cfg, store, &cbor(update), current, next, None).map(|(s, _)| s)
+    (step.apply_other(&chain, update).map(|(s, _)| s), step.helios(&chain, update).is_ok())
+}
+
+/// Refused by the core with `error`, and refused by Helios.
+fn refused(step: &Step, update: &AnyUpdate, error: Error) {
+    let (core, helios) = both(step, update);
+    assert_eq!(core.map(|_| ()), Err(error));
+    assert!(!helios, "Helios accepted what the core refused with {error:?}");
 }
 
 /// The root a Merkle branch proves `leaf` into: the inverse of the branch check.
@@ -83,12 +89,16 @@ impl Forger {
         Self { sk, committee: json!({ "pubkeys": pks, "aggregate_pubkey": aggregate }) }
     }
 
+    fn committee(&self) -> Committee {
+        serde_json::from_value(self.committee.clone()).unwrap()
+    }
+
     fn keys(&self) -> Vec<u8> {
-        committee_bytes(&serde_json::from_value::<verify::Committee>(self.committee.clone()).unwrap())
+        oracle::committee(&self.committee())
     }
 
     fn root(&self) -> [u8; 32] {
-        committee_root(&serde_json::from_value(self.committee.clone()).unwrap())
+        core::committee_root(&self.keys()).unwrap()
     }
 
     /// Signs `u`'s attested header, as all 512 members, under mainnet's Fulu domain.
@@ -117,8 +127,7 @@ impl Forger {
 /// fabricated execution state root, committed in the finalized header's body, that header in the
 /// attested state, and the attested header signed by all 512 of `forger`'s keys.
 fn fabricated(forger: &Forger) -> AnyUpdate {
-    let (_, update, _, _) = last_step();
-    let mut v = to_json(&update);
+    let mut v = to_json(&last_step().update);
     let u = inner(&mut v);
     u["finalized_header"]["execution"]["state_root"] = json!(hex(&[0xf0; 32]));
     let finalized: LightClientHeader = serde_json::from_value(u["finalized_header"].clone()).unwrap();
@@ -128,7 +137,7 @@ fn fabricated(forger: &Forger) -> AnyUpdate {
     u["finalized_header"]["beacon"]["body_root"] = json!(hex(&body_root));
     let beacon: BeaconBlockHeader = serde_json::from_value(u["finalized_header"]["beacon"].clone()).unwrap();
     let finality = u["finality_branch"].as_array().unwrap().clone();
-    // Electra on: the finalized checkpoint root at generalized index 105, depth 7, index 41.
+    // Electra on: the finalized checkpoint root at depth 7, index 41.
     u["attested_header"]["beacon"]["state_root"] = json!(hex(&branch_root(beacon.tree_hash_root().0, &finality, 7, 41)));
     forger.sign(u);
     from_json(v)
@@ -137,21 +146,28 @@ fn fabricated(forger: &Forger) -> AnyUpdate {
 // ---- controls ----
 
 #[test]
-fn honest_last_step_verifies() {
-    let (store, update, current, next) = last_step();
-    apply(&update, &store, &current, next.as_deref()).expect("the real update verifies");
+fn honest_last_step_verifies_in_both() {
+    let step = last_step();
+    let (core, helios) = both(&step, &step.update);
+    core.expect("the core accepts the real update");
+    assert!(helios, "Helios accepts the real update");
 }
 
 #[test]
 fn vs1_control_the_fabrication_is_self_consistent() {
-    // Against a store that trusted the forger's committee, the fabricated update verifies, so the
-    // refusals below come from the committee chain back to the checkpoint, not a broken fixture.
+    // Against a store that trusted the forger's committee, both accept the fabricated update, so
+    // the refusals below come from the committee chain back to the checkpoint, not a broken
+    // fixture.
     let forger = Forger::new();
-    let (mut store, _, _, _) = last_step();
-    store.current_committee = forger.root();
-    store.next_committee = None;
-    let after = apply(&fabricated(&forger), &store, &forger.keys(), None).expect("self-consistent");
-    assert!(after.finalized_slot > 0);
+    let mut step = last_step();
+    step.store.current_committee = forger.root();
+    step.store.next_committee = None;
+    step.current = forger.keys();
+    step.next = None;
+    step.helios = oracle::helios_store(&step.helios.finalized_header, &forger.committee(), None);
+    let (core, helios) = both(&step, &fabricated(&forger));
+    core.expect("the core accepts it, against the forger's committee");
+    assert!(helios, "Helios accepts it, against the forger's committee");
 }
 
 // ---- Verification Security #1: a fabricated chain ----
@@ -159,23 +175,22 @@ fn vs1_control_the_fabrication_is_self_consistent() {
 #[test]
 fn vs1_fabricated_chain_is_rejected() {
     let forger = Forger::new();
-    let (store, _, current, next) = last_step();
+    let mut step = last_step();
     let fake = fabricated(&forger);
-    // The forger's keys don't hash to the committee the store holds.
-    assert_eq!(apply(&fake, &store, &forger.keys(), next.as_deref()), Err(Error::CommitteeMismatch));
     // With the real committee's keys, the forger's signature doesn't verify.
-    assert_eq!(apply(&fake, &store, &current, next.as_deref()), Err(Error::BadSignature));
+    refused(&step, &fake, Error::BadSignature);
+    // The forger's keys don't hash to the committee the store holds.
+    step.current = forger.keys();
+    assert_eq!(step.apply_other(&mainnet(), &fake).map(|_| ()), Err(Error::CommitteeMismatch));
 }
 
 #[test]
 fn vs1_fabricated_checkpoint_is_rejected() {
     let chain = mainnet();
-    let mut b = serde_json::to_value(&chain.bootstrap).unwrap();
-    b["header"]["beacon"]["state_root"] = json!(hex(&[0xf0; 32]));
-    let bootstrap: helios_consensus_core::types::Bootstrap<helios_consensus_core::consensus_spec::MainnetConsensusSpec> =
-        serde_json::from_value(b).unwrap();
-    let committee = committee_bytes(chain.bootstrap.current_sync_committee());
-    assert_eq!(verify::bootstrap(&chain.cfg, &chain.checkpoint, &cbor(&bootstrap), &committee, None).map(|_| ()), Err(Error::CheckpointMismatch));
+    let mut b = oracle::bootstrap(&chain.bootstrap);
+    b.header.beacon.state_root = [0xf0; 32];
+    let committee = oracle::committee(chain.bootstrap.current_sync_committee());
+    assert_eq!(core::bootstrap(&chain.cfg, &chain.checkpoint, &b, &committee).map(|_| ()), Err(Error::CheckpointMismatch));
 }
 
 // ---- Verification Security #2 ----
@@ -184,52 +199,51 @@ fn vs1_fabricated_checkpoint_is_rejected() {
 fn vs2_committee_never_handed_off_is_rejected() {
     // The last update is signed by a committee two handoffs past the checkpoint.
     let chain = mainnet();
-    let (boot, _) = verify::bootstrap(&chain.cfg, &chain.checkpoint, &cbor(&chain.bootstrap), &committee_bytes(chain.bootstrap.current_sync_committee()), None).unwrap();
-    let (_, update, _, _) = last_step();
-    let (current, next) = keys(&chain, &boot);
-    assert_eq!(apply(&update, &boot, &current, next.as_deref()), Err(Error::HandoffNotVerified));
+    let (store, helios) = boot(&chain);
+    let (current, next) = keys(&chain, &store);
+    let update = last_step().update;
+    let step = Step { store, helios, update: update.clone(), current, next };
+    refused(&step, &update, Error::HandoffNotVerified);
 }
 
 #[test]
 fn vs2_forged_next_committee_is_rejected() {
-    let chain = mainnet();
-    let (s, _) = steps(&chain);
-    let Step { store, update, current, next } = s.into_iter().next().unwrap();
-    let mut v = to_json(&update);
+    let step = steps(&mainnet()).0.into_iter().next().unwrap();
+    let mut v = to_json(&step.update);
     inner(&mut v)["next_sync_committee"] = Forger::new().committee;
-    assert_eq!(apply(&from_json(v), &store, &current, next.as_deref()), Err(Error::BadCommitteeBranch));
+    refused(&step, &from_json(v), Error::BadCommitteeBranch);
 }
 
 #[test]
 fn vs2_below_participation_is_rejected() {
-    let (store, update, current, next) = last_step();
-    let mut v = to_json(&update);
+    let step = last_step();
+    let mut v = to_json(&step.update);
     // 341 of 512 signers, one short of 2/3.
     let mut bits = [0u8; 64];
     for i in 0..341 {
         bits[i / 8] |= 1 << (i % 8);
     }
     inner(&mut v)["sync_aggregate"]["sync_committee_bits"] = json!(hex(&bits));
-    assert_eq!(apply(&from_json(v), &store, &current, next.as_deref()), Err(Error::BelowParticipation));
+    refused(&step, &from_json(v), Error::BelowParticipation);
 }
 
 #[test]
 fn vs2_header_not_finalized_is_rejected() {
-    let (store, update, current, next) = last_step();
-    let mut v = to_json(&update);
+    let step = last_step();
+    let mut v = to_json(&step.update);
     let mut leaf = h32(&inner(&mut v)["finality_branch"][0]);
     leaf[0] ^= 1;
     inner(&mut v)["finality_branch"][0] = json!(hex(&leaf));
-    assert_eq!(apply(&from_json(v), &store, &current, next.as_deref()), Err(Error::NotFinalized));
+    refused(&step, &from_json(v), Error::NotFinalized);
 }
 
 #[test]
 fn vs2_tampered_execution_roots_are_rejected() {
-    let (store, update, current, next) = last_step();
+    let step = last_step();
     for field in ["state_root", "receipts_root"] {
-        let mut v = to_json(&update);
+        let mut v = to_json(&step.update);
         inner(&mut v)["finalized_header"]["execution"][field] = json!(hex(&[0xf0; 32]));
-        assert_eq!(apply(&from_json(v), &store, &current, next.as_deref()), Err(Error::BadExecutionBranch), "{field}");
+        refused(&step, &from_json(v), Error::BadExecutionBranch);
     }
 }
 
@@ -237,26 +251,28 @@ fn vs2_tampered_execution_roots_are_rejected() {
 fn vs2_update_under_another_chain_is_rejected() {
     // A mainnet update replayed to an instance of another chain: its signature is over mainnet's
     // domain, so it doesn't verify under another genesis validators root.
-    let (store, update, current, next) = last_step();
-    let mut cfg = mainnet().cfg;
-    cfg.genesis_validators_root = [0xd8; 32];
-    assert_eq!(
-        verify::update(&cfg, &store, &cbor(&update), &current, next.as_deref(), None).map(|_| ()),
-        Err(Error::BadSignature)
-    );
+    let step = last_step();
+    let mut chain = mainnet();
+    chain.cfg.genesis_validators_root = [0xd8; 32];
+    assert_eq!(step.apply_other(&chain, &step.update).map(|_| ()), Err(Error::BadSignature));
+    assert!(step.helios(&chain, &step.update).is_err(), "Helios refuses it too");
 }
 
 // ---- also refused ----
 
 #[test]
 fn tampered_signature_and_replayed_update_are_rejected() {
-    let (store, update, current, next) = last_step();
-    let mut v = to_json(&update);
+    let step = last_step();
+    let mut v = to_json(&step.update);
     let p = inner(&mut v)["attested_header"]["beacon"]["proposer_index"].as_str().unwrap().parse::<u64>().unwrap();
     inner(&mut v)["attested_header"]["beacon"]["proposer_index"] = json!((p ^ 1).to_string());
-    assert_eq!(apply(&from_json(v), &store, &current, next.as_deref()), Err(Error::BadSignature));
-    let after = apply(&update, &store, &current, next.as_deref()).unwrap();
-    assert_eq!(apply(&update, &after, &current, next.as_deref()), Err(Error::AlreadyApplied));
+    refused(&step, &from_json(v), Error::BadSignature);
+    // Applied once, then replayed on the store it produced.
+    let chain = mainnet();
+    let (after, _) = step.apply(&chain).unwrap();
+    let helios_after = step.helios(&chain, &step.update).unwrap();
+    let replay = Step { store: after, helios: helios_after, update: step.update.clone(), current: step.current.clone(), next: step.next.clone() };
+    refused(&replay, &step.update, Error::AlreadyApplied);
 }
 
 #[test]
@@ -265,8 +281,8 @@ fn committee_roots_equal_helios() {
     // the segment and a generated one.
     let chain = mainnet();
     let mut all = chain.committees.clone();
-    all.push(serde_json::from_value(Forger::new().committee).unwrap());
+    all.push(Forger::new().committee());
     for c in &all {
-        assert_eq!(committee_root(c), c.tree_hash_root().0);
+        assert_eq!(core::committee_root(&oracle::committee(c)).unwrap(), c.tree_hash_root().0);
     }
 }

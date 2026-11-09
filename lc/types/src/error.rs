@@ -2,6 +2,7 @@
 //! docs (U.5).
 
 use borsh::{BorshDeserialize, BorshSerialize};
+#[cfg(feature = "helios")]
 use helios_consensus_core::errors::ConsensusError;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
@@ -24,6 +25,7 @@ pub enum Error {
     CheckpointMismatch = 14,
 }
 
+#[cfg(feature = "helios")]
 impl Error {
     /// The code for a refusal from Helios's consensus checks.
     pub fn from_helios(e: &eyre::Report) -> Self {

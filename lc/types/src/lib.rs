@@ -6,21 +6,25 @@
 //! own **record** account, at an address derived from the instance and the header's slot
 //! ([`record_account`]), never rewritten or removed.
 //!
-//! The consensus checks are Helios's (`helios-consensus-core`); [`verify`] wraps them for a store
-//! that keeps 32-byte committee roots instead of 512 keys, and enforces the 2/3 quorum as an
-//! error. Merkle-Patricia proofs are checked with `alloy-trie` ([`mpt`]). Statements, predicates
-//! and history proofs are ours ([`statement`], [`history`]).
+//! The light-client checks are [`core`]: the consensus specs' light-client protocol, with BLS
+//! through `blst`, written for cost inside the zkVM. Helios's `consensus-core` checks the same
+//! updates in the tests, as a differential oracle ([`oracle`], host only, behind the `helios`
+//! feature). Merkle-Patricia proofs are checked with `alloy-trie` ([`mpt`]). Statements,
+//! predicates and history proofs are in [`statement`] and [`history`].
 
+pub mod core;
 pub mod error;
 pub mod history;
 pub mod mpt;
+#[cfg(feature = "helios")]
+pub mod oracle;
 pub mod statement;
-pub mod verify;
 
+use alloy_consensus::Header as ExecutionHeader;
 use alloy_primitives::B256;
+use alloy_rlp::Decodable;
 use borsh::{BorshDeserialize, BorshSerialize};
 use error::Error;
-use helios_consensus_core::types::Forks;
 use history::Ancestry;
 use lee_core::account::{AccountId, Actor};
 use lee_core::program::PdaSeed;
@@ -35,16 +39,20 @@ pub struct ChainConfig {
     pub chain_id: u64,
     pub genesis_validators_root: Root,
     pub genesis_time: u64,
-    /// Helios's `Forks`, CBOR-encoded.
-    pub forks: Vec<u8>,
+    /// `(epoch, fork version)` of every fork, oldest first.
+    pub forks: Vec<(u64, [u8; 4])>,
+    /// Where the state's field positions change: Electra deepened the state tree, Gloas again.
+    pub electra_epoch: u64,
+    pub gloas_epoch: u64,
     /// How long after its finalized slot a store may still be advanced, in seconds. Past it,
     /// the instance is outside the weak-subjectivity period and is replaced, not refreshed.
     pub max_store_age: u64,
 }
 
 impl ChainConfig {
-    pub fn forks(&self) -> Result<Forks, Error> {
-        serde_cbor::from_slice(&self.forks).map_err(|_| Error::Malformed)
+    /// The fork version in force at `epoch`.
+    pub fn fork_version(&self, epoch: u64) -> [u8; 4] {
+        self.forks.iter().rev().find(|(e, _)| *e <= epoch).map_or([0; 4], |(_, v)| *v)
     }
 
     pub fn hash(&self) -> Root {
@@ -65,16 +73,7 @@ impl ChainConfig {
     }
 }
 
-/// The light-client store an instance keeps. The committees are kept as their SSZ roots; an
-/// update supplies the keys, and [`verify::update`] checks them against these.
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
-pub struct Store {
-    /// Helios's `LightClientHeader` of the finalized header, CBOR-encoded.
-    pub finalized_header: Vec<u8>,
-    pub finalized_slot: u64,
-    pub current_committee: Root,
-    pub next_committee: Option<Root>,
-}
+pub use crate::core::Store;
 
 /// One finalized header as the program keeps it, and attestations are proven against.
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
@@ -129,28 +128,54 @@ pub(crate) fn b256(r: &Root) -> B256 {
     B256::from(*r)
 }
 
+/// The record of a verified finalized `header`. Before Gloas its execution fields are in the
+/// payload header the core proved under the body root; from Gloas only the block hash is, and
+/// `rlp`, the execution header that must hash to it, gives the rest.
+pub fn record_of(cfg: &ChainConfig, header: &core::Header, rlp: Option<&[u8]>, signers: u16) -> Result<HeaderRecord, Error> {
+    let (block_number, block_hash, state_root, receipts_root) = match &header.execution {
+        core::Execution::Payload(p) => (p.block_number, p.block_hash, p.state_root, p.receipts_root),
+        core::Execution::BlockHash(hash) => {
+            let rlp = rlp.ok_or(Error::BadExecutionBranch)?;
+            if alloy_primitives::keccak256(rlp).0 != *hash {
+                return Err(Error::BadExecutionBranch);
+            }
+            let e = ExecutionHeader::decode(&mut &rlp[..]).map_err(|_| Error::BadExecutionBranch)?;
+            (e.number, *hash, e.state_root.0, e.receipts_root.0)
+        }
+    };
+    Ok(HeaderRecord {
+        chain_id: cfg.chain_id,
+        slot: header.beacon.slot,
+        beacon_root: core::beacon_root(&header.beacon),
+        block_number,
+        block_hash,
+        state_root,
+        receipts_root,
+        signers,
+    })
+}
+
 #[derive(Clone, Debug, BorshSerialize, BorshDeserialize)]
 pub enum LcMsg {
     /// Public, to an empty instance, signed by its account: bind `cfg` and start the store
-    /// from `checkpoint`, a beacon block root the deployer trusts. `bootstrap` is Helios's
-    /// `Bootstrap`, CBOR-encoded, and `committee` its committee's keys as SSZ; `rlp` is the
-    /// execution header, needed from Gloas on.
+    /// from `checkpoint`, a beacon block root the deployer trusts, with the bootstrap and its
+    /// committee's keys (SSZ); `rlp` is the execution header, needed from Gloas on.
     Init {
         cfg: ChainConfig,
         checkpoint: Root,
-        bootstrap: Vec<u8>,
+        bootstrap: core::Bootstrap,
         committee: Vec<u8>,
         rlp: Option<Vec<u8>>,
     },
-    /// Private, to the submitter's own actor of this program: verify `update` (Helios's
-    /// `verify::AnyUpdate`, CBOR-encoded) on top of `store` under `cfg`, with the committee keys
-    /// `current` and `next`, then advance `instance`. The instance checks that `store` and
-    /// `cfg` are the ones it holds, so the submitter can't pick either.
+    /// Private, to the submitter's own actor of this program: verify `update` on top of `store`
+    /// under `cfg`, with the keys (SSZ) of the committees `store` holds the roots of, then advance
+    /// `instance`. The instance checks that `store` and `cfg` are the ones it holds, so the
+    /// submitter can't pick either.
     Update {
         instance: Actor,
         cfg: ChainConfig,
         store: Store,
-        update: Vec<u8>,
+        update: core::Update,
         current: Vec<u8>,
         next: Option<Vec<u8>>,
         rlp: Option<Vec<u8>>,

@@ -54,8 +54,8 @@ use std::{collections::BTreeMap, time::Instant};
 use common::transaction::LeeTransaction;
 use eth_lc_types::history::{Ancestry, history_slot, target_record};
 use eth_lc_types::statement::{self, Cmp, Field, Predicate, Proof, Query};
-use eth_lc_types::verify::{self, AnyUpdate, cbor, committee_bytes};
-use eth_lc_types::{HeaderRecord, Instance, LcMsg, RecordState, Store, record_account, record_seed};
+use eth_lc_types::oracle::{self, AnyUpdate};
+use eth_lc_types::{HeaderRecord, Instance, LcMsg, RecordState, Store, core, record_account, record_of, record_seed};
 use lee::{
     AccountId, Actor, BoundaryStep, native_token,
     privacy_preserving_transaction::circuit::ProgramCatalog, program::Program,
@@ -137,7 +137,7 @@ async fn read_record(
 
 /// An update that advances an instance, checked natively, with everything `Update` sends.
 struct NextUpdate {
-    update: Vec<u8>,
+    update: core::Update,
     current: Vec<u8>,
     next: Option<Vec<u8>>,
     store: Store,
@@ -154,7 +154,7 @@ fn next_update(held: &Instance, dir: &str) -> anyhow::Result<NextUpdate> {
 }
 
 fn next_update_in(chain: &Chain, store: &Store) -> anyhow::Result<NextUpdate> {
-    let committee = |root: &[u8; 32]| chain.committee(root).map(committee_bytes);
+    let committee = |root: &[u8; 32]| chain.committee(root).map(oracle::committee);
     let current = committee(&store.current_committee).ok_or_else(|| anyhow::anyhow!("the segment lacks the current committee's keys"))?;
     let next = match &store.next_committee {
         Some(root) => Some(committee(root).ok_or_else(|| anyhow::anyhow!("the segment lacks the next committee's keys"))?),
@@ -162,14 +162,15 @@ fn next_update_in(chain: &Chain, store: &Store) -> anyhow::Result<NextUpdate> {
     };
     let mut best: Option<NextUpdate> = None;
     for u in &chain.updates {
-        let update = cbor(u);
-        let Ok((after, record)) = verify::update(&chain.cfg, store, &update, &current, next.as_deref(), None) else { continue };
+        let update = oracle::update(u);
+        let Ok((after, advanced)) = core::update(&chain.cfg, store, &update, &current, next.as_deref()) else { continue };
+        let record = if advanced { Some(record_of(&chain.cfg, &update.finalized, None, core::signers(&update.bits) as u16).map_err(|e| anyhow::anyhow!("{e:?}"))?) } else { None };
         let handoff = matches!(u, AnyUpdate::Update(_)) && after.next_committee != store.next_committee;
-        if best.as_ref().is_none_or(|b| after.finalized_slot > b.store.finalized_slot) {
+        if best.as_ref().is_none_or(|b| after.finalized.slot > b.store.finalized.slot) {
             best = Some(NextUpdate { update, current: current.clone(), next: next.clone(), store: after, record, handoff });
         }
     }
-    best.ok_or_else(|| anyhow::anyhow!("nothing in the segment advances the instance past slot {}", store.finalized_slot))
+    best.ok_or_else(|| anyhow::anyhow!("nothing in the segment advances the instance past slot {}", store.finalized.slot))
 }
 
 /// An `eth_getProof` response as a statement that the slot holds a nonzero value.
@@ -399,11 +400,10 @@ async fn main() -> anyhow::Result<()> {
         "init" => {
             let (program, instance, dir, payer) = (id(arg(1)?)?, id(arg(2)?)?, abs(arg(3)?)?, id(arg(4)?)?);
             let chain = load_chain(&dir, CHAIN_ID)?;
-            let bootstrap = cbor(&chain.bootstrap);
-            let committee = committee_bytes(chain.bootstrap.current_sync_committee());
-            let (_, record) = verify::bootstrap(&chain.cfg, &chain.checkpoint, &bootstrap, &committee, None)
-                .map_err(|e| anyhow::anyhow!("the bootstrap doesn't verify: {e:?}"))?;
-            let checkpoint_slot = record.slot;
+            let bootstrap = oracle::bootstrap(&chain.bootstrap);
+            let committee = oracle::committee(chain.bootstrap.current_sync_committee());
+            core::bootstrap(&chain.cfg, &chain.checkpoint, &bootstrap, &committee).map_err(|e| anyhow::anyhow!("the bootstrap doesn't verify: {e:?}"))?;
+            let checkpoint_slot = bootstrap.header.beacon.slot;
             let message = LcMsg::Init { cfg: chain.cfg, checkpoint: chain.checkpoint, bootstrap, committee, rlp: None };
             // Init checks the bootstrap publicly: the committee's SSZ root over 512 keys, decoded
             // from CBOR. Its gas limit is raised to the per-transaction cap so a heavy bootstrap
@@ -425,7 +425,7 @@ async fn main() -> anyhow::Result<()> {
             fees::report_public_tx(&client, "lc-init", tx, before, after).await?;
             fees::report_status(&client, "lc-init", tx, block).await?;
             let held = read_instance(&client, program, instance).await?;
-            println!("initialised at slot {} block {}", held.store.finalized_slot, held.latest.block_number);
+            println!("initialised at slot {} block {}", held.store.finalized.slot, held.latest.block_number);
         }
 
         "update" => {
@@ -436,14 +436,14 @@ async fn main() -> anyhow::Result<()> {
             let next = next_update(&held, &dir)?;
             println!(
                 "update: slot {} -> {} (block {}), handoff {}, signers {}",
-                held.store.finalized_slot,
-                next.store.finalized_slot,
+                held.store.finalized.slot,
+                next.store.finalized.slot,
                 next.record.as_ref().map_or(held.latest.block_number, |r| r.block_number),
                 next.handoff,
                 next.record.as_ref().map_or(0, |r| r.signers),
             );
             let advances = next.record.is_some();
-            let next_slot = next.store.finalized_slot;
+            let next_slot = next.store.finalized.slot;
             let message = LcMsg::Update {
                 instance: Actor::new(instance, program),
                 cfg: held.cfg,
@@ -476,7 +476,7 @@ async fn main() -> anyhow::Result<()> {
             fees::report_status(&client, "lc-update", tx, block).await?;
             report_published(&wallet_core, &client, "lc-update", (program, instance, record_account(&program, &instance, next_slot)), tx, vec![("payer".to_owned(), payer.as_ref().to_vec())]).await?;
             let held = read_instance(&client, program, instance).await?;
-            println!("advanced in block {block} to slot {} block {}", held.store.finalized_slot, held.latest.block_number);
+            println!("advanced in block {block} to slot {} block {}", held.store.finalized.slot, held.latest.block_number);
         }
 
         "attest-public" => {
@@ -588,7 +588,7 @@ async fn main() -> anyhow::Result<()> {
         "pending" => {
             let held = read_instance(&client, id(arg(1)?)?, id(arg(2)?)?).await?;
             match next_update(&held, &abs(arg(3)?)?) {
-                Ok(n) => println!("next update verifies: slot {} -> {}, handoff {}", held.store.finalized_slot, n.store.finalized_slot, n.handoff),
+                Ok(n) => println!("next update verifies: slot {} -> {}, handoff {}", held.store.finalized.slot, n.store.finalized.slot, n.handoff),
                 Err(e) => println!("no update yet: {e}"),
             }
         }
@@ -599,9 +599,9 @@ async fn main() -> anyhow::Result<()> {
             let written = read_record(&client, program, instance, held.latest.slot).await?.is_some_and(|r| r.record == held.latest);
             println!(
                 "finalized slot {} block {}; period {}; next committee known {}; latest record at {} (written {written}), latest block {}",
-                held.store.finalized_slot,
+                held.store.finalized.slot,
                 held.latest.block_number,
-                held.store.finalized_slot / 8192,
+                core::period(held.store.finalized.slot),
                 held.store.next_committee.is_some(),
                 record_account(&program, &instance, held.latest.slot),
                 held.latest.block_number,
@@ -626,11 +626,13 @@ async fn main() -> anyhow::Result<()> {
         "check" => {
             let dir = abs(arg(1)?)?;
             let chain = load_chain(&dir, CHAIN_ID)?;
-            let (store, record) = verify::bootstrap(&chain.cfg, &chain.checkpoint, &cbor(&chain.bootstrap), &committee_bytes(chain.bootstrap.current_sync_committee()), None)
+            let bootstrap = oracle::bootstrap(&chain.bootstrap);
+            let store = core::bootstrap(&chain.cfg, &chain.checkpoint, &bootstrap, &oracle::committee(chain.bootstrap.current_sync_committee()))
                 .map_err(|e| anyhow::anyhow!("bootstrap refused: {e:?}"))?;
-            println!("bootstrap verifies: slot {} block {}", store.finalized_slot, record.block_number);
+            let record = record_of(&chain.cfg, &bootstrap.header, None, 0).map_err(|e| anyhow::anyhow!("{e:?}"))?;
+            println!("bootstrap verifies: slot {} block {}", store.finalized.slot, record.block_number);
             match next_update_in(&chain, &store) {
-                Ok(n) => println!("next update verifies: slot {} -> {}, handoff {}", store.finalized_slot, n.store.finalized_slot, n.handoff),
+                Ok(n) => println!("next update verifies: slot {} -> {}, handoff {}", store.finalized.slot, n.store.finalized.slot, n.handoff),
                 Err(e) => println!("no update yet: {e}"),
             }
             return Ok(());

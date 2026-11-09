@@ -3040,15 +3040,14 @@ dependencies = [
  "alloy-primitives",
  "alloy-rlp",
  "alloy-trie",
+ "blst",
  "borsh",
  "ethereum_ssz 0.9.1",
  "eyre",
  "helios-consensus-core",
  "lee_core",
  "serde",
- "serde_cbor",
  "sha2 0.10.9",
- "tree_hash 0.10.0",
 ]
 
 [[package]]

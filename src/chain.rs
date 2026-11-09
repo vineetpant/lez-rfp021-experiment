@@ -7,16 +7,15 @@ use std::path::Path;
 
 use anyhow::{Context, anyhow};
 use eth_lc_types::mpt::{Account, StorageProof};
-use eth_lc_types::verify::{AnyUpdate, Committee, committee_root};
+use eth_lc_types::core;
+use eth_lc_types::oracle::{self, AnyUpdate, Committee};
 use eth_lc_types::{ChainConfig, Root};
 use helios_consensus_core::consensus_spec::MainnetConsensusSpec as Spec;
-use helios_consensus_core::types::{Bootstrap, FinalityUpdate, Forks, Update};
-use serde_json::{Value, json};
+use helios_consensus_core::types::{Bootstrap, FinalityUpdate, Update};
+use serde_json::Value;
 
 /// Two weeks: inside Ethereum's weak-subjectivity period at today's validator count.
 pub const MAX_STORE_AGE: u64 = 14 * 24 * 3600;
-
-const FORK_NAMES: [&str; 8] = ["genesis", "altair", "bellatrix", "capella", "deneb", "electra", "fulu", "gloas"];
 
 pub struct Chain {
     pub cfg: ChainConfig,
@@ -30,7 +29,7 @@ pub struct Chain {
 
 impl Chain {
     pub fn committee(&self, root: &Root) -> Option<&Committee> {
-        self.committees.iter().find(|c| &committee_root(c) == root)
+        self.committees.iter().find(|c| core::committee_root(&oracle::committee(c)).ok().as_ref() == Some(root))
     }
 }
 
@@ -50,30 +49,33 @@ pub fn hex_decode(s: &str) -> anyhow::Result<Vec<u8>> {
     (0..s.len()).step_by(2).map(|i| u8::from_str_radix(&s[i..i + 2], 16).map_err(Into::into)).collect()
 }
 
-/// Helios's `Forks` from the Beacon API's fork schedule, in fork order. A fork not yet
-/// scheduled (Gloas on mainnet today) stays inactive.
-fn forks(schedule: &Value) -> anyhow::Result<Forks> {
+/// `(epoch, version)` of every scheduled fork, oldest first, from the Beacon API's schedule.
+fn forks(schedule: &Value) -> anyhow::Result<Vec<(u64, [u8; 4])>> {
     let entries = schedule["data"].as_array().ok_or_else(|| anyhow!("no fork schedule"))?;
-    let mut forks = serde_json::Map::new();
-    for (name, e) in FORK_NAMES.iter().zip(entries) {
-        let epoch: u64 = e["epoch"].as_str().unwrap_or("0").parse()?;
-        forks.insert((*name).into(), json!({ "epoch": epoch, "fork_version": e["current_version"] }));
-    }
-    if !forks.contains_key("gloas") {
-        forks.insert("gloas".into(), json!({ "epoch": u64::MAX, "fork_version": "0x00000000" }));
-    }
-    Ok(serde_json::from_value(Value::Object(forks))?)
+    entries
+        .iter()
+        .map(|e| {
+            let epoch: u64 = e["epoch"].as_str().unwrap_or("0").parse()?;
+            let v = hex_decode(e["current_version"].as_str().unwrap_or_default())?;
+            Ok((epoch, v.try_into().map_err(|_| anyhow!("a fork version is 4 bytes"))?))
+        })
+        .collect()
 }
 
 pub fn load_chain(dir: impl AsRef<Path>, chain_id: u64) -> anyhow::Result<Chain> {
     let dir = dir.as_ref();
     let genesis = read(&dir.join("genesis.json"))?;
     let forks = forks(&read(&dir.join("fork_schedule.json"))?)?;
+    // In fork order: genesis, Altair, Bellatrix, Capella, Deneb, Electra, Fulu, then Gloas once
+    // scheduled.
+    let epoch_of = |i: usize| forks.get(i).map_or(u64::MAX, |(e, _)| *e);
     let cfg = ChainConfig {
         chain_id,
         genesis_validators_root: root(genesis["data"]["genesis_validators_root"].as_str().unwrap_or_default())?,
         genesis_time: genesis["data"]["genesis_time"].as_str().unwrap_or("0").parse()?,
-        forks: serde_cbor::to_vec(&forks)?,
+        electra_epoch: epoch_of(5),
+        gloas_epoch: epoch_of(7),
+        forks,
         max_store_age: MAX_STORE_AGE,
     };
 
