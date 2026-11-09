@@ -6,6 +6,7 @@
 use std::path::Path;
 
 use anyhow::{Context, anyhow};
+use eth_lc_types::mpt::{Account, StorageProof};
 use eth_lc_types::verify::{AnyUpdate, Committee, committee_root};
 use eth_lc_types::{ChainConfig, Root};
 use helios_consensus_core::consensus_spec::MainnetConsensusSpec as Spec;
@@ -38,7 +39,7 @@ fn read(path: &Path) -> anyhow::Result<Value> {
         .with_context(|| format!("parse {}", path.display()))
 }
 
-fn hex32(s: &str) -> anyhow::Result<Root> {
+fn root(s: &str) -> anyhow::Result<Root> {
     let v = hex_decode(s)?;
     v.try_into().map_err(|_| anyhow!("{s} is not 32 bytes"))
 }
@@ -70,7 +71,7 @@ pub fn load_chain(dir: impl AsRef<Path>, chain_id: u64) -> anyhow::Result<Chain>
     let forks = forks(&read(&dir.join("fork_schedule.json"))?)?;
     let cfg = ChainConfig {
         chain_id,
-        genesis_validators_root: hex32(genesis["data"]["genesis_validators_root"].as_str().unwrap_or_default())?,
+        genesis_validators_root: root(genesis["data"]["genesis_validators_root"].as_str().unwrap_or_default())?,
         genesis_time: genesis["data"]["genesis_time"].as_str().unwrap_or("0").parse()?,
         forks: serde_cbor::to_vec(&forks)?,
         max_store_age: MAX_STORE_AGE,
@@ -80,7 +81,7 @@ pub fn load_chain(dir: impl AsRef<Path>, chain_id: u64) -> anyhow::Result<Chain>
     names.sort();
     let boot = names.iter().find(|n| n.starts_with("bootstrap-") && n.ends_with(".json")).ok_or_else(|| anyhow!("no bootstrap in {}", dir.display()))?;
     let bootstrap: Bootstrap<Spec> = serde_json::from_value(read(&dir.join(boot))?["data"].clone()).context("decode the bootstrap")?;
-    let checkpoint = hex32(&std::fs::read_to_string(dir.join(boot.replace(".json", ".root")))?)?;
+    let checkpoint = root(&std::fs::read_to_string(dir.join(boot.replace(".json", ".root")))?)?;
 
     let mut committees = vec![bootstrap.current_sync_committee().clone()];
     let mut updates = vec![];
@@ -98,4 +99,37 @@ pub fn load_chain(dir: impl AsRef<Path>, chain_id: u64) -> anyhow::Result<Chain>
         updates.push(AnyUpdate::Finality(f));
     }
     Ok(Chain { cfg, checkpoint, bootstrap, updates, committees })
+}
+
+pub fn hex32(v: &serde_json::Value) -> anyhow::Result<[u8; 32]> {
+    let b = hex_decode(v.as_str().unwrap_or_default())?;
+    anyhow::ensure!(b.len() <= 32, "{v} is longer than 32 bytes");
+    let mut w = [0u8; 32];
+    w[32 - b.len()..].copy_from_slice(&b);
+    Ok(w)
+}
+
+/// An `eth_getProof` response as a proof of one account and slot. Nodes shorten quantities
+/// (`0x4a8`), so every number is left-padded back to its width.
+pub fn storage_proof(path: &str) -> anyhow::Result<StorageProof> {
+    let j: serde_json::Value = serde_json::from_slice(&std::fs::read(path)?)?;
+    let r = &j["result"];
+    let nodes = |v: &serde_json::Value| -> anyhow::Result<Vec<Vec<u8>>> {
+        v.as_array().ok_or_else(|| anyhow::anyhow!("{path}: not a proof"))?.iter().map(|x| hex_decode(x.as_str().unwrap_or_default())).collect()
+    };
+    let s = &r["storageProof"][0];
+    let address = hex_decode(r["address"].as_str().unwrap_or_default())?;
+    Ok(StorageProof {
+        address: address.try_into().map_err(|_| anyhow::anyhow!("{path}: bad address"))?,
+        account: Account {
+            nonce: u64::from_str_radix(r["nonce"].as_str().unwrap_or("0x0").trim_start_matches("0x"), 16)?,
+            balance: hex32(&r["balance"])?,
+            storage_root: hex32(&r["storageHash"])?,
+            code_hash: hex32(&r["codeHash"])?,
+        },
+        account_proof: nodes(&r["accountProof"])?,
+        slot: hex32(&s["key"])?,
+        value: hex32(&s["value"])?,
+        storage_proof: nodes(&s["proof"])?,
+    })
 }

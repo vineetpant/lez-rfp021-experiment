@@ -53,7 +53,6 @@ use std::{collections::BTreeMap, time::Instant};
 
 use common::transaction::LeeTransaction;
 use eth_lc_types::history::{Ancestry, history_slot, target_record};
-use eth_lc_types::mpt::{Account, StorageProof};
 use eth_lc_types::statement::{self, Cmp, Field, Predicate, Proof, Query};
 use eth_lc_types::verify::{self, AnyUpdate, cbor};
 use eth_lc_types::{HeaderRecord, Instance, LcMsg, RecordState, Store, record_account, record_seed};
@@ -61,7 +60,7 @@ use lee::{
     AccountId, Actor, BoundaryStep, native_token,
     privacy_preserving_transaction::circuit::ProgramCatalog, program::Program,
 };
-use lez_hello_world::chain::{Chain, hex_decode, load_chain};
+use lez_hello_world::chain::{Chain, hex32, hex_decode, load_chain, storage_proof};
 use lez_hello_world::{deploy_program, fees, follow_private_tx};
 use sequencer_service_rpc::{RpcClient as _, SequencerClient};
 use wallet::{AccountIdentity, AccountMention, WalletCore};
@@ -171,39 +170,6 @@ fn next_update_in(chain: &Chain, store: &Store) -> anyhow::Result<NextUpdate> {
         }
     }
     best.ok_or_else(|| anyhow::anyhow!("nothing in the segment advances the instance past slot {}", store.finalized_slot))
-}
-
-fn hex32(v: &serde_json::Value) -> anyhow::Result<[u8; 32]> {
-    let b = hex_decode(v.as_str().unwrap_or_default())?;
-    anyhow::ensure!(b.len() <= 32, "{v} is longer than 32 bytes");
-    let mut w = [0u8; 32];
-    w[32 - b.len()..].copy_from_slice(&b);
-    Ok(w)
-}
-
-/// An `eth_getProof` response as a proof of one account and slot. Nodes shorten quantities
-/// (`0x4a8`), so every number is left-padded back to its width.
-fn storage_proof(path: &str) -> anyhow::Result<StorageProof> {
-    let j: serde_json::Value = serde_json::from_slice(&std::fs::read(path)?)?;
-    let r = &j["result"];
-    let nodes = |v: &serde_json::Value| -> anyhow::Result<Vec<Vec<u8>>> {
-        v.as_array().ok_or_else(|| anyhow::anyhow!("{path}: not a proof"))?.iter().map(|x| hex_decode(x.as_str().unwrap_or_default())).collect()
-    };
-    let s = &r["storageProof"][0];
-    let address = hex_decode(r["address"].as_str().unwrap_or_default())?;
-    Ok(StorageProof {
-        address: address.try_into().map_err(|_| anyhow::anyhow!("{path}: bad address"))?,
-        account: Account {
-            nonce: u64::from_str_radix(r["nonce"].as_str().unwrap_or("0x0").trim_start_matches("0x"), 16)?,
-            balance: hex32(&r["balance"])?,
-            storage_root: hex32(&r["storageHash"])?,
-            code_hash: hex32(&r["codeHash"])?,
-        },
-        account_proof: nodes(&r["accountProof"])?,
-        slot: hex32(&s["key"])?,
-        value: hex32(&s["value"])?,
-        storage_proof: nodes(&s["proof"])?,
-    })
 }
 
 /// An `eth_getProof` response as a statement that the slot holds a nonzero value.
