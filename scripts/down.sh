@@ -12,7 +12,7 @@ pkill -f "[/]indexer_service" && echo "  indexer stopped" || echo "  indexer not
 pkill -f "[/]sequencer_service" && echo "  sequencer stopped" || echo "  sequencer not running"
 
 step "Stopping bedrock"
-( cd "$HELLO_DIR" && docker compose down ) || true
+pkill -f "[/]logos-blockchain-node" && echo "  bedrock stopped" || echo "  bedrock not running"
 
 echo
 echo "Devnet stopped. State kept - run ./scripts/reset.sh to wipe it."

@@ -1,20 +1,16 @@
 #!/usr/bin/env bash
-# Bring the devnet up: bedrock in Docker, then the LEZ indexer and sequencer.
+# Bring the devnet up: bedrock, then the LEZ indexer and sequencer, all as native processes.
 #
-# Needs no logos-execution-zone checkout. Bedrock's image pulls a published release
-# binary; the LEZ services are cargo-installed from the pinned tag into .devnet/bin.
+# Needs no logos-execution-zone checkout. Bedrock is built from its pinned commit and the
+# LEZ services are cargo-installed from the pinned tag, both into .devnet/bin.
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 
-mkdir -p "$LOGS" "$DEVNET/state/indexer" "$DEVNET/state/sequencer" "$LEE_WALLET_HOME_DIR"
+mkdir -p "$LOGS" "$DEVNET/state/bedrock" "$DEVNET/state/indexer" "$LEE_WALLET_HOME_DIR"
 
 step "Checking prerequisites"
-for c in cargo docker; do
-    command -v "$c" >/dev/null || die "$c not found - see README 'Prerequisites'"
-    printf '  %-8s ok\n' "$c"
-done
-docker info >/dev/null 2>&1 || die "Docker is not running"
-echo "  docker   running"
+command -v cargo >/dev/null || die "cargo not found - see README 'Prerequisites'"
+echo "  cargo    ok"
 
 # Refuse to run against someone else's devnet. Without this check a leftover sequencer --
 # from an earlier layout, or another checkout -- keeps the port and answers every health
@@ -30,26 +26,61 @@ for spec in "18080 bedrock" "3040 sequencer" "8779 indexer"; do
     printf '  %-5s free (%s)\n' "$port" "$what"
 done
 
+step "Installing bedrock"
+ensure_bedrock_binary
+
 step "Installing the LEZ service binaries"
 ensure_devnet_binaries
 
-step "Starting bedrock (first run builds the image: ~1 min)"
-( cd "$HELLO_DIR" && docker compose up -d --build )
+# Bedrock keeps its chain under its working directory, so stopping and starting the devnet
+# resumes the same chain. POL_PROOF_DEV_MODE skips leader proofs, as LEZ's own devnet does.
+step "Starting bedrock"
+( cd "$DEVNET/state/bedrock" || exit 1
+  POL_PROOF_DEV_MODE=true nohup "$DEVNET_BIN/logos-blockchain-node" \
+    "$HELLO_DIR/configs/bedrock/node-config.yaml" \
+    --deployment "$HELLO_DIR/configs/bedrock/deployment-settings.yaml" \
+    < /dev/null > "$LOGS/bedrock.log" 2>&1 &
+  echo "  pid $!" )
+for i in $(seq 1 30); do
+    curl -fsS -o /dev/null http://localhost:18080/cryptarchia/info 2>/dev/null && break
+    [ "$i" -eq 30 ] && { tail -20 "$LOGS/bedrock.log" >&2; die "bedrock did not answer on 18080"; }
+    sleep 1
+done
+echo "  answering on 18080"
 
 # The wallet reads its config from its home directory.
 cp -f "$HELLO_DIR/configs/wallet/wallet_config.json" "$LEE_WALLET_HOME_DIR/"
 
 # Each service puts its RocksDB in the working directory, so each gets its own state dir.
 # Run two from one directory and the second dies on the first's lock.
+#
+# Only the service itself goes to the background, with stdin closed. Backgrounding `cd && cmd`
+# leaves a subshell alive holding this script's stdout, so anything reading the script's
+# output waits for the services to exit.
 step "Starting indexer"
-( cd "$DEVNET/state/indexer" && RUST_LOG=info env "${DEV_MODE_ENV[@]}" \
-    nohup "$DEVNET_BIN/indexer_service" "$HELLO_DIR/configs/indexer_config.json" \
-    > "$LOGS/indexer.log" 2>&1 & echo "  pid $!" )
+( cd "$DEVNET/state/indexer" || exit 1
+  RUST_LOG=info nohup env "${DEV_MODE_ENV[@]}" \
+    "$DEVNET_BIN/indexer_service" "$HELLO_DIR/configs/indexer_config.json" \
+    < /dev/null > "$LOGS/indexer.log" 2>&1 &
+  echo "  pid $!" )
 
+# `setup` writes the sequencer's home once: its config, from the network file and genesis,
+# and a fresh channel signing key. Later runs start from that home and resume its chain.
 step "Starting sequencer"
-( cd "$DEVNET/state/sequencer" && RUST_LOG=info env "${DEV_MODE_ENV[@]}" \
-    nohup "$DEVNET_BIN/sequencer_service" "$HELLO_DIR/configs/sequencer_config.json" \
-    > "$LOGS/sequencer.log" 2>&1 & echo "  pid $!" )
+SEQ_HOME="$DEVNET/state/sequencer"
+if [ ! -f "$SEQ_HOME/sequencer_config.json" ]; then
+    "$DEVNET_BIN/sequencer_service" setup "$SEQ_HOME" \
+        --config "$HELLO_DIR/configs/sequencer_network.json" \
+        --funding-public-key "$BEDROCK_FUNDING_PUBLIC_KEY" --create-channel \
+        > "$LOGS/sequencer-setup.log" 2>&1 \
+        || { cat "$LOGS/sequencer-setup.log" >&2; die "sequencer setup failed"; }
+    echo "  set up $SEQ_HOME"
+fi
+( cd "$SEQ_HOME" || exit 1
+  RUST_LOG="info,risc0_zkvm=warn,kameo=warn" nohup env "${DEV_MODE_ENV[@]}" \
+    "$DEVNET_BIN/sequencer_service" start "$SEQ_HOME" \
+    < /dev/null > "$LOGS/sequencer.log" 2>&1 &
+  echo "  pid $!" )
 
 step "Waiting for the chain to accept the wallet"
 # A check right after start can return "Failed to find leader" while the sequencer

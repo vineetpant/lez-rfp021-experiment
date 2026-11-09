@@ -10,7 +10,7 @@ a Logos RFP-021 implementation, and `guest/` is where that program will live.
 
 ## Before you change anything
 
-- **Ask Vineet first.** Say what you want to change and why, then wait for approval. Reading
+- **Ask the maintainer first.** Say what you want to change and why, then wait for approval. Reading
   code, answering questions and read-only checks are fine.
 - **Commit messages are one line.** No body, no file lists. Never add AI attribution or
   co-author trailers.

@@ -11,14 +11,20 @@ description = "A working hello world on the Logos Execution Zone"
 #
 # To develop against a local checkout instead, uncomment the patch block below.
 [dependencies]
-lee = { git = "https://github.com/logos-blockchain/logos-execution-zone.git", tag = "v0.3.0-rc1" }
-wallet = { git = "https://github.com/logos-blockchain/logos-execution-zone.git", tag = "v0.3.0-rc1" }
-program_loader_core = { git = "https://github.com/logos-blockchain/logos-execution-zone.git", tag = "v0.3.0-rc1" }
+lee = { git = "https://github.com/logos-blockchain/logos-execution-zone.git", tag = "v0.4.0-rc1" }
+wallet = { git = "https://github.com/logos-blockchain/logos-execution-zone.git", tag = "v0.4.0-rc1" }
+program_loader_core = { git = "https://github.com/logos-blockchain/logos-execution-zone.git", tag = "v0.4.0-rc1" }
+common = { git = "https://github.com/logos-blockchain/logos-execution-zone.git", tag = "v0.4.0-rc1" }
+sequencer_service_rpc = { git = "https://github.com/logos-blockchain/logos-execution-zone.git", tag = "v0.4.0-rc1", features = ["client"] }
 
 anyhow = "1.0.98"
-tokio = { version = "1.50", features = ["macros", "rt-multi-thread"] }
+borsh = "1.5.7"
+risc0-binfmt = "3.0"
+tokio = { version = "1.50", features = ["macros", "rt-multi-thread", "time"] }
 
 # [patch."https://github.com/logos-blockchain/logos-execution-zone.git"]
 # lee = { path = "../logos-execution-zone/lee/state_machine" }
 # wallet = { path = "../logos-execution-zone/lez/wallet" }
 # program_loader_core = { path = "../logos-execution-zone/lez/programs/program_loader/core" }
+# common = { path = "../logos-execution-zone/lez/common" }
+# sequencer_service_rpc = { path = "../logos-execution-zone/lez/sequencer/service/rpc" }
