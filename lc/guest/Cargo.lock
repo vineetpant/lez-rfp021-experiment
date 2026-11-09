@@ -1843,6 +1843,7 @@ dependencies = [
  "alloy-rlp",
  "alloy-trie",
  "borsh",
+ "ethereum_ssz 0.9.1",
  "eyre",
  "helios-consensus-core",
  "lee_core",

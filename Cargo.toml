@@ -45,3 +45,6 @@ tree_hash = "0.10"
 # The receipt-log test builds a receipt-trie proof the way an execution node would.
 alloy-rlp = "0.3"
 alloy-trie = "0.9"
+# Runs the program in the executor, metered as the sequencer meters it.
+risc0-zkvm = { version = "=3.0.5", features = ["client"] }
+lee_core = { git = "https://github.com/logos-blockchain/logos-execution-zone.git", tag = "v0.4.0-rc1" }

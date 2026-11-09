@@ -54,7 +54,7 @@ use std::{collections::BTreeMap, time::Instant};
 use common::transaction::LeeTransaction;
 use eth_lc_types::history::{Ancestry, history_slot, target_record};
 use eth_lc_types::statement::{self, Cmp, Field, Predicate, Proof, Query};
-use eth_lc_types::verify::{self, AnyUpdate, cbor};
+use eth_lc_types::verify::{self, AnyUpdate, cbor, committee_bytes};
 use eth_lc_types::{HeaderRecord, Instance, LcMsg, RecordState, Store, record_account, record_seed};
 use lee::{
     AccountId, Actor, BoundaryStep, native_token,
@@ -154,7 +154,7 @@ fn next_update(held: &Instance, dir: &str) -> anyhow::Result<NextUpdate> {
 }
 
 fn next_update_in(chain: &Chain, store: &Store) -> anyhow::Result<NextUpdate> {
-    let committee = |root: &[u8; 32]| chain.committee(root).map(cbor);
+    let committee = |root: &[u8; 32]| chain.committee(root).map(committee_bytes);
     let current = committee(&store.current_committee).ok_or_else(|| anyhow::anyhow!("the segment lacks the current committee's keys"))?;
     let next = match &store.next_committee {
         Some(root) => Some(committee(root).ok_or_else(|| anyhow::anyhow!("the segment lacks the next committee's keys"))?),
@@ -400,10 +400,11 @@ async fn main() -> anyhow::Result<()> {
             let (program, instance, dir, payer) = (id(arg(1)?)?, id(arg(2)?)?, abs(arg(3)?)?, id(arg(4)?)?);
             let chain = load_chain(&dir, CHAIN_ID)?;
             let bootstrap = cbor(&chain.bootstrap);
-            let (_, record) = verify::bootstrap(&chain.cfg, &chain.checkpoint, &bootstrap, None)
+            let committee = committee_bytes(chain.bootstrap.current_sync_committee());
+            let (_, record) = verify::bootstrap(&chain.cfg, &chain.checkpoint, &bootstrap, &committee, None)
                 .map_err(|e| anyhow::anyhow!("the bootstrap doesn't verify: {e:?}"))?;
             let checkpoint_slot = record.slot;
-            let message = LcMsg::Init { cfg: chain.cfg, checkpoint: chain.checkpoint, bootstrap, rlp: None };
+            let message = LcMsg::Init { cfg: chain.cfg, checkpoint: chain.checkpoint, bootstrap, committee, rlp: None };
             // Init checks the bootstrap publicly: the committee's SSZ root over 512 keys, decoded
             // from CBOR. Its gas limit is raised to the per-transaction cap so a heavy bootstrap
             // isn't cut off; only Init gets this, because a refused public transaction is charged
@@ -625,7 +626,7 @@ async fn main() -> anyhow::Result<()> {
         "check" => {
             let dir = abs(arg(1)?)?;
             let chain = load_chain(&dir, CHAIN_ID)?;
-            let (store, record) = verify::bootstrap(&chain.cfg, &chain.checkpoint, &cbor(&chain.bootstrap), None)
+            let (store, record) = verify::bootstrap(&chain.cfg, &chain.checkpoint, &cbor(&chain.bootstrap), &committee_bytes(chain.bootstrap.current_sync_committee()), None)
                 .map_err(|e| anyhow::anyhow!("bootstrap refused: {e:?}"))?;
             println!("bootstrap verifies: slot {} block {}", store.finalized_slot, record.block_number);
             match next_update_in(&chain, &store) {

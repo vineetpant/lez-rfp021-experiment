@@ -133,11 +133,13 @@ pub(crate) fn b256(r: &Root) -> B256 {
 pub enum LcMsg {
     /// Public, to an empty instance, signed by its account: bind `cfg` and start the store
     /// from `checkpoint`, a beacon block root the deployer trusts. `bootstrap` is Helios's
-    /// `Bootstrap`, CBOR-encoded; `rlp` is the execution header, needed from Gloas on.
+    /// `Bootstrap`, CBOR-encoded, and `committee` its committee's keys as SSZ; `rlp` is the
+    /// execution header, needed from Gloas on.
     Init {
         cfg: ChainConfig,
         checkpoint: Root,
         bootstrap: Vec<u8>,
+        committee: Vec<u8>,
         rlp: Option<Vec<u8>>,
     },
     /// Private, to the submitter's own actor of this program: verify `update` (Helios's

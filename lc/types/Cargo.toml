@@ -19,5 +19,6 @@ borsh = { version = "1.5", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }
 serde_cbor = "0.11"
 eyre = "0.6"
+ethereum_ssz = "0.9"
 sha2 = "0.10"
 tree_hash = "0.10"

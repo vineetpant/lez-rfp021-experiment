@@ -53,12 +53,12 @@ fn attest(record: &HeaderRecord, query: &statement::Query, ancestry: Option<Ance
 
 fn handle(input: &ReceiveInput) -> Response {
     match borsh::from_slice::<LcMsg>(&input.message).expect("an eth_lc message") {
-        LcMsg::Init { cfg, checkpoint, bootstrap, rlp } => {
+        LcMsg::Init { cfg, checkpoint, bootstrap, committee, rlp } => {
             assert!(input.pre_state.as_ref().is_empty(), "instance already initialised");
             // Whoever holds the account chooses the checkpoint and the config. Without the
             // signature anyone could squat an account with a checkpoint of their choosing.
             assert!(input.is_authorized, "Init must be signed by the instance account");
-            let (store, latest) = verify::bootstrap(&cfg, &checkpoint, &bootstrap, rlp.as_deref())
+            let (store, latest) = verify::bootstrap(&cfg, &checkpoint, &bootstrap, &committee, rlp.as_deref())
                 .unwrap_or_else(|e| panic!("the bootstrap verifies against the checkpoint: {e:?}"));
             let state = Response::set_state(borsh::to_vec(&Instance { cfg, store, latest: latest.clone() }).unwrap());
             write_record(input, state, latest)

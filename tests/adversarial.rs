@@ -13,7 +13,7 @@ mod support;
 use bls12_381::hash_to_curve::{ExpandMsgXmd, HashToCurve};
 use bls12_381::{G1Affine, G2Affine, G2Projective, Scalar};
 use eth_lc_types::error::Error;
-use eth_lc_types::verify::{self, AnyUpdate, cbor, committee_root};
+use eth_lc_types::verify::{self, AnyUpdate, cbor, committee_bytes, committee_root};
 use helios_consensus_core::types::{BeaconBlockHeader, ExecutionPayloadHeader, LightClientHeader};
 use serde_json::{Value, json};
 use sha2_09::{Digest, Sha256};
@@ -84,7 +84,7 @@ impl Forger {
     }
 
     fn keys(&self) -> Vec<u8> {
-        cbor(&serde_json::from_value::<verify::Committee>(self.committee.clone()).unwrap())
+        committee_bytes(&serde_json::from_value::<verify::Committee>(self.committee.clone()).unwrap())
     }
 
     fn root(&self) -> [u8; 32] {
@@ -174,7 +174,8 @@ fn vs1_fabricated_checkpoint_is_rejected() {
     b["header"]["beacon"]["state_root"] = json!(hex(&[0xf0; 32]));
     let bootstrap: helios_consensus_core::types::Bootstrap<helios_consensus_core::consensus_spec::MainnetConsensusSpec> =
         serde_json::from_value(b).unwrap();
-    assert_eq!(verify::bootstrap(&chain.cfg, &chain.checkpoint, &cbor(&bootstrap), None).map(|_| ()), Err(Error::CheckpointMismatch));
+    let committee = committee_bytes(chain.bootstrap.current_sync_committee());
+    assert_eq!(verify::bootstrap(&chain.cfg, &chain.checkpoint, &cbor(&bootstrap), &committee, None).map(|_| ()), Err(Error::CheckpointMismatch));
 }
 
 // ---- Verification Security #2 ----
@@ -183,7 +184,7 @@ fn vs1_fabricated_checkpoint_is_rejected() {
 fn vs2_committee_never_handed_off_is_rejected() {
     // The last update is signed by a committee two handoffs past the checkpoint.
     let chain = mainnet();
-    let (boot, _) = verify::bootstrap(&chain.cfg, &chain.checkpoint, &cbor(&chain.bootstrap), None).unwrap();
+    let (boot, _) = verify::bootstrap(&chain.cfg, &chain.checkpoint, &cbor(&chain.bootstrap), &committee_bytes(chain.bootstrap.current_sync_committee()), None).unwrap();
     let (_, update, _, _) = last_step();
     let (current, next) = keys(&chain, &boot);
     assert_eq!(apply(&update, &boot, &current, next.as_deref()), Err(Error::HandoffNotVerified));
@@ -256,4 +257,16 @@ fn tampered_signature_and_replayed_update_are_rejected() {
     assert_eq!(apply(&from_json(v), &store, &current, next.as_deref()), Err(Error::BadSignature));
     let after = apply(&update, &store, &current, next.as_deref()).unwrap();
     assert_eq!(apply(&update, &after, &current, next.as_deref()), Err(Error::AlreadyApplied));
+}
+
+#[test]
+fn committee_roots_equal_helios() {
+    // The direct SSZ root the program uses, against Helios's own hashing, for every committee in
+    // the segment and a generated one.
+    let chain = mainnet();
+    let mut all = chain.committees.clone();
+    all.push(serde_json::from_value(Forger::new().committee).unwrap());
+    for c in &all {
+        assert_eq!(committee_root(c), c.tree_hash_root().0);
+    }
 }
