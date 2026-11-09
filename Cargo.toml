@@ -23,6 +23,7 @@ eth-lc-types = { path = "lc/types" }
 helios-consensus-core = { git = "https://github.com/a16z/helios", rev = "2af9b41887e069144ee56cd710f3ddca195473f8" }
 serde_json = "1"
 serde_cbor = "0.11"
+alloy-primitives = "1.7"
 
 anyhow = "1.0.98"
 borsh = "1.5.7"

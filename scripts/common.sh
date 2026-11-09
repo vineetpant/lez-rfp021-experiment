@@ -25,6 +25,8 @@ WALLET_PASSWORD="${WALLET_PASSWORD:-program-tutorial}"
 # Guest-builder image tag. The default tag ships a rustc too old for this dependency
 # tree; this is the tag logos-execution-zone's own Justfile pins.
 GUEST_BUILDER_TAG="${GUEST_BUILDER_TAG:-r0.1.91.1}"
+# The light-client program needs a newer rustc than hello world: Helios pulls in alloy 2.5.
+LC_BUILDER_TAG="${LC_BUILDER_TAG:-r0.1.97.0}"
 
 # The private key of the first genesis supply account in configs/sequencer_network.json.
 # Freshly claimed accounts hold no balance, so something funded has to pay for claiming them.
