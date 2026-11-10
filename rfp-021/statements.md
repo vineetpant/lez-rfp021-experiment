@@ -5,6 +5,37 @@ the answer, and how a consumer uses that identifier to act on an Ethereum fact e
 This is the design we implement; the work still to do is tracked in the issues listed at the
 end. RFP-021 items: F.3–F.8, F.15, S.4, U.6, VS.2, VS.3, soft #2 and #4.
 
+## The flow, step by step
+
+| # | Step | Status | Where |
+|---|---|---|---|
+| 1 | The LEZ program implements the light-client signature check and the surrounding checks in one function | ✅ built | `core::update` (`lc/types/src/core.rs`), run by the `Update` message |
+| 2 | That function is proven privately on the operator's machine, which submits the transaction with the proof (the RISC Zero receipt) | ✅ built, on the node with real proofs | the operator's wallet proves `Update`; the sequencer verifies the receipt |
+| 3 | The transaction advances the finalized header, stored as a header record in a program-derived account | ✅ built | `Advance`, then `WriteRecord` at `for_public_pda(eth_lc, H(instance ‖ slot))` |
+| 4 | Consumers fetch from Ethereum what the predicate needs, e.g. `eth_getProof(address, slot, block)` for an ERC-20 balance (the state-trie and storage-trie paths) | ✅ built for storage; logs (`eth_getBlockReceipts`) still to wire on the node (#34) | `scripts/fetch-chain.sh proof`, at the record's block; a balance slot is `keccak(holder ‖ balances_position)` |
+| 5 | Consumers submit the proof and the predicate, e.g. `(CheckSlotValue, equal to, value, proof)`, to the program | ⚠️ works as a claim (a fact plus conditions); the typed-predicate shape below is planned (#13) | `Attest` to the record account; the record fixes the block, and an older block is reached with an ancestry, not a block number |
+| 6 | The program checks the proof, evaluates the predicate, and returns a statement with an ID | ✅ built | `statement::check`; the ID is derived from the proven Ethereum state (section 3) |
+
+**Planned predicate shape (step 5).** One typed predicate per check, several per attestation,
+all of which must hold (soft #4):
+
+```rust
+Attestation { chain_id, proofs: [Proof], predicates: [Predicate] }
+Proof     = Storage { account path + storage path } | Receipt { receipts-trie path + log index }
+Predicate = CheckSlotValue      { proof, op, value }
+          | CheckAccountBalance { proof, op, value }
+          | CheckAccountNonce   { proof, op, value }
+          | CheckAccountCode    { proof, value }
+          | CheckLogAddress     { proof, value }
+          | CheckLogTopic       { proof, index, op, value }
+          | CheckLogData        { proof, word, op, value }
+```
+
+`proof` names one of the attestation's proofs by position, so a deposit is three predicates over
+one receipt: `CheckLogAddress` (the vault), `CheckLogTopic` (the event), `CheckLogData` (the
+amount). Sections 1–4 below describe the same content as facts and conditions; the statement,
+its IDs and the nullifiers don't change with the shape.
+
 ## 1. The question: a claim
 
 A consumer program builds a **claim** in its own transaction (F.4, F.7). The module needs no
