@@ -191,13 +191,44 @@ keyed on the statement ID.
 
 ### The nullifier account
 
-A LEZ-native nullifier is a write-once account of the consumer program, at an address derived
-from the ID:
+**Assumptions.** The consumer program owns its nullifiers: `eth_lc` returns the statement ID
+and stops there (RFP-021, out of scope). The reference consumers (U.6) and the Recommended
+Consumer Pattern (S.4) implement the scheme below, and other consumers are expected to follow
+it.
+
+**A program-derived address (PDA)** is an account address computed from a program's ID and a
+seed, `for_public_pda(program, seed)`, rather than from a key pair. No one holds a private key
+for it, so only that program can write to it, and anyone can compute it from the same two
+inputs. `eth_lc`'s record accounts already work this way, at `PDA(eth_lc, H(instance ‖ slot))`.
+
+A consumer's nullifier for a statement ID is the account at:
 
 ```
 nullifier(id) = for_public_pda(consumer_program, H("nullifier" ‖ id))
+```
+
+- `consumer_program`: the account belongs to the consumer, so only it can mark the ID spent.
+- `id`: one address per Ethereum fact, the same address every time for the same fact.
+- `"nullifier"`: a label that keeps these addresses apart from any other account the consumer
+  derives from an ID.
+
+The consumer handles it with one message to that account:
+
+```
 Spend { id }  → refuses if the account already holds a value, else writes it once
 ```
+
+For the 10 ETH deposit with ID `0xab12…`:
+
+```
+addr = for_public_pda(bridge, H("nullifier" ‖ 0xab12…))   always the same for this deposit
+
+first mint:   the account at addr is empty    → write it, mint 10 wETH
+second mint:  the account at addr is written  → refuse; the whole transaction reverts
+```
+
+Like a locker numbered by the deposit's ID that only the bridge holds the key to: empty means
+unused, filled means spent.
 
 - One account per ID, found by derivation, so checking it costs the same however many deposits
   were consumed (P.9).
