@@ -141,8 +141,9 @@ committee signed a header containing them:
 checkpoint → R_N → signs H → H contains R_{N+1} → …
 ```
 
-Liveness needs at least one handoff per sync-committee period (27.3 h). A missed period stops
-the instance, and recovery is a fresh instance (F.10).
+Liveness needs one update per sync-committee period (27.3 h). A stalled instance stays safe,
+and anyone resumes it by submitting the missed periods' updates in order (R.7). Only an
+instance stalled past 14 days, the freshness bound, needs a fresh instance (F.10).
 
 ### 4. Update path A: proven (the operating mode)
 
@@ -570,6 +571,109 @@ suite gives the auditor an audited reference to check the protocol logic against
 | Logos Ethereum core module | No light-client objects or raw `eth_getProof` nodes | Our team member extends it upstream (U.1, F.9) |
 | Standalone sequencer + Bedrock (S.2) | No published Bedrock release matches v0.4's pin. Built from source at the pinned commit, it runs: our local devnet (one Bedrock node, sequencer, indexer) ran deploy, Init, updates and attestations on 3–9 Nov | e2e on this devnet. Known issue: the sequencer's Bedrock funding key drains after about 1,350 blocks and must be topped up |
 
+### 13. Reliability (R.1–R.12)
+
+How each Reliability item is met, by mechanism, with where it is enforced and how it is shown.
+
+**R.1 Deterministic verification.**
+- The verifier (`core::update`, `statement::check`, `history::target_record`) is a pure
+  function of its inputs: no clock, no randomness, no host calls. Time enters only as the
+  transaction's `timestamp_window`, which the sequencer enforces outside the verdict.
+- The same code runs natively in the client, in the dry run and inside the program, so a
+  verdict is reproducible from `cargo test`. The differential suite runs every recorded update
+  through Helios as well; a disagreement fails the test.
+- Evidence: `tests/statement.rs` (`..._is_deterministic`), `tests/oracle.rs`.
+
+**R.2 Read-only for the consumer, retry always possible.**
+- `Attest`, `AttestPrivate` and `CheckRecord` return `keep_state()`: they write neither the
+  record nor the consumer. No nullifier is spent by the module; spending one is the consumer's
+  own step after a statement is returned (section 7).
+- Every refusal is a panic with a typed `Refusal`, so a public refusal reverts the whole
+  transaction and the consumer's state is untouched. A private refusal fails in the wallet's
+  local run, before a proof exists, so nothing is sent.
+- The CLI dry-runs a public attestation and stops on a refusal with the same code (U.2).
+- Evidence: node run, every broken attestation refused on both paths, retried honestly after.
+
+**R.3 Statements stay valid forever.**
+- A statement is checked against a record account, written once by `WriteRecord`
+  (`write_once` refuses a second write) at `for_public_pda(program, H(instance ‖ slot))`. No
+  message deletes or rewrites one, and a later update or committee rotation only adds records.
+- An old record also reaches older blocks through EIP-2935 or a parent-hash chain (section 8).
+- Evidence: node run (records written, read back, attested against after later updates);
+  `tests/lc.rs` walks two handoffs.
+
+**R.4 Handoff tracking survives a restart.**
+- The verified state lives only on LEZ: the instance holds the store (finalized header,
+  current and next committee roots). The daemon keeps no state it needs: on start it reads the
+  instance and fetches the update for the period after the store's.
+- An unverified handoff can't be accepted: an update signed in a period whose committee the
+  store doesn't hold is refused (`UnverifiedHandoff`), and supplied keys must hash to the stored
+  root (`CommitteeKeysMismatch`).
+- Evidence: `tests/adversarial.rs` (committee never handed off). Kill-and-restart test of the
+  daemon in M3.
+
+**R.5 Ethereum-side outages are recoverable.**
+- Every fetch is idempotent and verified before use (Beacon API updates checked natively with
+  the same verifier, `eth_getProof` checked against a record), so a failed or partial fetch is
+  simply repeated. The daemon's only side effect is a LEZ transaction, and it reads the
+  instance before sending one, so nothing already applied is redone.
+- Several endpoints can serve the same data; switching costs nothing, since none is trusted.
+- Evidence: fault-injection tests of the daemon (dropped RPC, timeouts) in M3.
+
+**R.6 Reuse of audited implementations.** Section 11.
+
+**R.7 A stalled instance stays safe and resumes.**
+- Safety: records never change, so attestations against them keep verifying whatever the
+  instance does.
+- Resumption: the spec light client advances one period at a time. Each missed period's
+  update is signed by the committee whose root the store already holds and carries the next
+  one's branch, so anyone (no registration, F.11) submits them in order and the handoff chain
+  has no gap. The Beacon API serves past periods' updates (`light_client/updates?start_period`).
+  Catch-up of several periods in one private transaction is measured in M1.
+- Bound: past `max_store_age` (14 days) from the store's finalized slot, the weak-subjectivity
+  limit, updates are refused (`StaleStore`), and the transaction's validity window ends there,
+  so the sequencer's clock refuses it too. The instance is then replaced, not repaired (F.10).
+- Evidence: `tests/lc.rs` advances a store across two periods in order; stall test in M1.
+
+**R.8 Concurrent submissions never double-apply.**
+- `Advance` carries `prev`, the store the update was verified on, and the config hash. The
+  instance applies it only if `prev` equals the store it holds and the config matches; anything
+  else reverts. Two updates verified on the same store can't both apply, and a replay can't
+  apply at all (`UpdateNotNewer` in the verifier as well).
+- `Advance` is accepted only from the program's own actor (`from_own_program`), so a store
+  can't be pushed directly.
+- Evidence: `tests/adversarial.rs` (replayed update); on v0.4 a losing racer was refused and
+  charged its reserve (section 4). Two-operator test in M3.
+
+**R.9 Re-check before submitting.**
+- The daemon reads the instance immediately before submitting and drops an update whose
+  `prev` no longer matches, or that another party's update has made unnecessary (the store's
+  period and finalized slot already at or past it).
+- Because a losing racer pays its whole reserve, the daemon also sets the reserve from the
+  measured public part, so a lost race costs the minimum.
+- Evidence: multi-operator test in M3 (#11).
+
+**R.10 Deferral spreads cost across operators.**
+- Each daemon waits `d = H(operator key ‖ instance ‖ period) mod D` after an update becomes
+  available, then re-checks (R.9) and submits only if nobody has. The hash varies the order
+  per period, so over many periods each operator submits about `1/n` of the updates.
+- `D` is configurable; the default trades at most `D` of extra latency for the spread. The
+  latency effect is documented with the cadence (section 9). An on-demand update, paid by the
+  party who needs it, skips the deferral.
+- Optionally the bounty pool (section 9b) pays the submitter, so a deferred operator is not
+  out of pocket.
+- Evidence: multi-operator test in M3: submissions per operator and added latency.
+
+**R.11 Statements are independent.**
+- An attestation reads one immutable record and writes nothing shared: `CheckRecord` is a
+  read under `keep_state()`. So private attestations don't conflict, any number can land in one
+  block, and each can compute its result before inclusion: a record held when the consumer
+  proves is still held at inclusion.
+- Evidence: same-block private attestations test in M2.
+
+**R.12 Green CI.** GitHub Actions runs the native tests on every push (#30), and in M4 the
+end-to-end run on a standalone sequencer (S.2).
+
 ---
 
 ## Milestones, payout and timeline
@@ -615,11 +719,11 @@ Every hard requirement maps to a design element and a test or artifact.
 | R.3 | Immutable record accounts | Node: records written once and read back; post-rotation validity test |
 | R.4, R.5 | Daemon resumes from LEZ state | Kill and restart tests |
 | R.6 | Spec protocol on audited `blst`, held to Helios (section 11) | `tests/oracle.rs`, `tests/adversarial.rs`: same verdict and store as Helios on every case |
-| R.7 | Stalled instance resumes; catch-up | Stall test |
+| R.7 | Stalled instance resumes by in-order updates; `StaleStore` past 14 days (section 13) | `tests/lc.rs`; stall test |
 | R.8 | Digest-checked `Advance`; `UpdateNotNewer` | Replay test; racing test |
 | R.9, R.10 | Re-check plus deferral | Multi-operator test |
 | R.11 | Immutable records, no shared writes | Same-block private attest test |
-| R.12 | CI | Green default branch |
+| R.12 | CI | Green default branch (#30) |
 | P.1 | Attest under the per-transaction budget | Node: 301k–549k exec gas against a 10M cap |
 | P.2 | Per action: cycles, gas, proof time, proof size | bench-plan.md |
 | P.3 | Amortised tracking cost at the recommended cadence | Two updates per period: [results.md](results.md#derived) |
