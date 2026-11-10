@@ -13,9 +13,9 @@
 //!
 //! `chain-dir` holds Beacon API JSON for one mainnet chain segment: `genesis.json`,
 //! `fork_schedule.json`, one `bootstrap-<slot>.json` with its `.root`, one `updates-*.json`
-//! array, and optionally `finality_update.json`. `scripts/fetch-chain.sh` writes one from a
-//! live beacon node; `tests/data/mainnet-1904` is a recorded one. Every update is checked with
-//! Helios's consensus checks, natively first, so a proof is never spent on one that fails.
+//! array, and optionally `finality_update.json`, as a beacon node serves them;
+//! `tests/data/mainnet-1904` is a recorded one. Every update is checked natively first, with the
+//! verifier the program runs, so a proof is never spent on one that fails.
 //!
 //! `instance` is a public account the wallet owns; `Init` must be signed by it. `operator`
 //! is a private account the wallet owns, whose actor runs the proven checks. Private fees are
@@ -37,8 +37,9 @@
 //! Three cases attest to a block older than the latest record, the one `getproof-<n>.json`
 //! is at: `history` reaches it through the EIP-2935 history contract, `history-chain` through
 //! the parent-hash chain of headers, and `history-forged`, which must fail, through EIP-2935
-//! with one byte of the target's header changed. `scripts/fetch-chain.sh`'s `history` and
-//! `header` modes fetch what they need into the same directory. Each attestation prints an `ATTEST` line with its outcome:
+//! with one byte of the target's header changed. They read the history proof
+//! (`history-<anchor>-<target>.json`) and the headers (`header-<n>.rlp`) from the same
+//! directory. Each attestation prints an `ATTEST` line with its outcome:
 //!
 //! - `accepted`: included and not reverted, the only outcome that means the statement holds;
 //! - `reverted`: included and charged, but its effects undone because a check failed;
@@ -65,7 +66,7 @@ use lez_hello_world::{deploy_program, fees, follow_private_tx};
 use sequencer_service_rpc::{RpcClient as _, SequencerClient};
 use wallet::{AccountIdentity, AccountMention, WalletCore};
 
-/// The recorded vectors and `fetch-chain.sh` are both Ethereum mainnet.
+/// The recorded segments are Ethereum mainnet.
 const CHAIN_ID: u64 = 1;
 
 const USAGE: &str = "usage:

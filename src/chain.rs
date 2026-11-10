@@ -1,4 +1,4 @@
-//! A chain segment for `eth_lc`, read from Beacon API JSON (`scripts/fetch-chain.sh` writes it):
+//! A chain segment for `eth_lc`, read from Beacon API JSON, as a beacon node serves it:
 //! `genesis.json`, `fork_schedule.json`, one `bootstrap-<slot>.json` with its `.root`,
 //! `updates-*.json` arrays, and optionally `finality_update.json`. Every object decodes straight
 //! into Helios's types.

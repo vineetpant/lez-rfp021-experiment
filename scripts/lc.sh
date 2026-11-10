@@ -1,33 +1,36 @@
 #!/usr/bin/env bash
-# The light client end to end on the local devnet, on live mainnet data:
+# The light client end to end on the local devnet, on recorded mainnet data (tests/data):
 #
-#   deploy eth_lc -> Init from a live checkpoint -> private update (committee handoff)
-#   -> private update (finality) -> public attestation -> private attestation
-#   -> attestations to older blocks: EIP-2935 and a parent-hash chain
+#   deploy eth_lc -> Init from the recorded checkpoint -> private updates, through the
+#   committee handoffs to a finality update -> public attestation -> private attestation
 #   -> negative attestations, which must fail
 #
-# Run ./scripts/up.sh first, and ./scripts/hello.sh once (it funds a private fee payer).
-# Every charge is a FEE line, every proven step a TIME line, and every transaction's outcome a
-# STATUS line, all kept in .devnet/logs/fees.log. DEV_MODE=0, for up.sh too, proves for real.
-# After each private step, PUBLISHED lines list what its transaction made public, and the
-# script fails unless its PRIVACY line passes: no private account, payer or query in it.
+# Run ./scripts/up.sh first. Every charge is a FEE line, every proven step a TIME line, and
+# every transaction's outcome a STATUS line, all kept in .devnet/logs/fees.log. DEV_MODE=0, for
+# up.sh too, proves for real. After each private step, PUBLISHED lines list what its transaction
+# made public, and the script fails unless its PRIVACY line passes: no private account, payer
+# or query in it.
 #
 # Inclusion isn't success: v0.4 includes and charges a public action that fails, and only marks
 # it reverted. So each attestation's outcome is read from its block, and the script fails unless
 # the honest ones are accepted and every broken one is refused.
 #
-# The attestation proves a WETH storage slot (WETH_SLOT, a balance mapping entry) is
-# nonzero at the block the instance last recorded.
+# The attestation proves a WETH storage slot (WETH_SLOT, a balance mapping entry) is nonzero at
+# the block the instance last recorded; its eth_getProof response is recorded too.
 #
-# LC_FROM=update2 skips to the second update, LC_FROM=attest to the attestations, and
-# LC_FROM=history to the attestations to older blocks, on the
-# instance the last run left in .devnet/lc-last. With real proofs each update takes over half
-# an hour, so a failure after one needn't cost it again.
+# The recorded segment starts at a checkpoint of 6 Nov 2026. The program refuses an update more
+# than 14 days past its store (the freshness bound, which the sequencer's clock enforces through
+# the transaction's validity window), so on recorded data the updates run until about
+# 20 Nov 2026. After that the run needs fresh data, which the operator daemon fetches.
+#
+# LC_FROM=attest skips to the attestations, on the instance the last run left in
+# .devnet/lc-last. With real proofs each update takes over half an hour, so a failure after
+# one needn't cost it again.
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 cd "$HELLO_DIR"
 
-CHAIN="$DEVNET/chain"
+CHAIN="$HELLO_DIR/tests/data/mainnet-1904"
 FEES="$LOGS/fees.log"
 WETH=0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2
 WETH_SLOT="${WETH_SLOT:-0x390f6178407c9b8e95802b8659e6df8e34c1e3d4f8d6a49e6132bbcdd937b63a}"
@@ -112,9 +115,24 @@ step "Accounts"
 # pipe, the wallet panics writing to it, and pipefail reports that as the account missing.
 ACCOUNTS=$(wallet account list)
 PAYER=$(grep -oE "Public/CbgR6tj5[1-9A-HJ-NP-Za-km-z]+" <<<"$ACCOUNTS" | head -1 || true)
-[ -n "$PAYER" ] || die "no genesis payer in the wallet - run ./scripts/hello.sh first"
+if [ -z "$PAYER" ]; then
+    # The funded genesis account pays for public transactions.
+    PAYER=$(wallet account import public --private-key "$PAYER_KEY" 2>&1 | grep -oE "Public/[1-9A-HJ-NP-Za-km-z]+" | head -1 || true)
+    [ -n "$PAYER" ] || die "could not import the genesis payer"
+fi
 FEE_PAYER=$(grep -F "[fee-payer" <<<"$ACCOUNTS" | grep -oE "Private/[1-9A-HJ-NP-Za-km-z]+" | head -1 || true)
-[ -n "$FEE_PAYER" ] || die "no private fee payer - run ./scripts/hello.sh first"
+if [ -z "$FEE_PAYER" ]; then
+    # A private transaction pays its fee inside the proof, from an owned private account, so one
+    # has to hold tokens first. Shielding them from the public payer is itself a private
+    # transaction.
+    label="fee-payer-$(date +%s)"
+    wallet account new private --label "$label" >/dev/null
+    ACCOUNTS=$(wallet account list)
+    FEE_PAYER=$(grep -F "[$label]" <<<"$ACCOUNTS" | grep -oE "Private/[1-9A-HJ-NP-Za-km-z]+" | head -1 || true)
+    [ -n "$FEE_PAYER" ] || die "could not create the private fee payer"
+    env "${DEV_MODE_ENV[@]}" "$DEVNET_BIN/wallet" auth-transfer send \
+        --from "$PAYER" --to "$FEE_PAYER" --amount 100000000000 2>&1 | grep -E "included|rror" | sed 's/^/  /'
+fi
 if [ -n "${LC_FROM:-}" ]; then
     [ -f "$DEVNET/lc-last" ] || die "LC_FROM=$LC_FROM needs a previous run's .devnet/lc-last"
     read -r PROGRAM INSTANCE OPERATOR <"$DEVNET/lc-last"
@@ -132,8 +150,7 @@ echo "  operator $OPERATOR"
 echo "  private fee payer $FEE_PAYER"
 
 if [ -z "${LC_FROM:-}" ]; then
-step "Fetching a live mainnet checkpoint and checking it natively"
-./scripts/fetch-chain.sh "$CHAIN" | sed 's/^/  /'
+step "Checking the recorded checkpoint and updates natively"
 lc check "$CHAIN"
 
 step "Deploying eth_lc (immutable)"
@@ -144,70 +161,37 @@ echo "$PROGRAM $INSTANCE $OPERATOR" >"$DEVNET/lc-last"
 step "Init: binding the config and the checkpoint (public, signed by the instance)"
 lc init "$PROGRAM" "$INSTANCE" "$CHAIN" "$PAYER"
 
-step "Update 1: committee handoff (private, proven locally)"
-FP=$(fee_payer_balance)
-lc update "$LC_BIN" "$PROGRAM" "$INSTANCE" "$CHAIN" "$OPERATOR" "$PAYER"
-private_fee lc-update-charged "$FP"
-expect_private
-fi
-
-if [ -z "${LC_FROM:-}" ] || [ "$LC_FROM" = update2 ]; then
-step "Update 2: finality (private, proven locally)"
-# The finality update has to finalize past the instance's header, which takes at least an
-# epoch. It is checked against the instance as it stands on the node, not a fresh bootstrap.
-for i in $(seq 1 30); do
-    ./scripts/fetch-chain.sh "$CHAIN" refresh | sed 's/^/  /'
+# Each update the recorded segment holds, in order: every one is signed by a committee the
+# store already holds, so the instance follows the handoffs to the finality update.
+n=0
+while :; do
     lc pending "$PROGRAM" "$INSTANCE" "$CHAIN"
-    read -r FROM TO < <(grep -oE "slot [0-9]+ -> [0-9]+" <<<"$LAST" | awk '{print $2, $4}') || true
-    [ -n "${TO:-}" ] && [ "$TO" -gt "$FROM" ] && break
-    [ "$i" -eq 30 ] && die "no finality update past the checkpoint after 30 minutes"
-    sleep 60
+    grep -q "next update verifies" <<<"$LAST" || break
+    n=$((n + 1))
+    handoff=$(grep -oE "handoff (true|false)" <<<"$LAST" | awk '{print $2}')
+    step "Update $n: $([ "$handoff" = true ] && echo "committee handoff" || echo finality) (private, proven locally)"
+    FP=$(fee_payer_balance)
+    lc update "$LC_BIN" "$PROGRAM" "$INSTANCE" "$CHAIN" "$OPERATOR" "$PAYER"
+    private_fee lc-update-charged "$FP"
+    expect_private
 done
-FP=$(fee_payer_balance)
-lc update "$LC_BIN" "$PROGRAM" "$INSTANCE" "$CHAIN" "$OPERATOR" "$PAYER"
-private_fee lc-update-charged "$FP"
-expect_private
+[ "$n" -gt 0 ] || die "no recorded update advances the instance"
 fi
 lc show "$PROGRAM" "$INSTANCE"
 BLOCK=$(grep -oE "latest block [0-9]+" <<<"$LAST" | awk '{print $3}')
+PROOF="$CHAIN/getproof-$BLOCK.json"
+[ -f "$PROOF" ] || die "no recorded storage proof at block $BLOCK ($PROOF)"
 
-step "Fetching a WETH storage proof at block $BLOCK"
-BLOCK=$BLOCK ./scripts/fetch-chain.sh "$CHAIN" proof "$WETH" "$WETH_SLOT" | sed 's/^/  /'
-
-if [ "${LC_FROM:-}" != history ]; then
 step "Public attestation"
-lc attest-public "$PROGRAM" "$INSTANCE" "$CHAIN/getproof-$BLOCK.json" "$PAYER"
+lc attest-public "$PROGRAM" "$INSTANCE" "$PROOF" "$PAYER"
 expect accepted
 
 step "Private attestation (proven locally; only the record check is public)"
 FP=$(fee_payer_balance)
-lc attest-private "$LC_BIN" "$PROGRAM" "$INSTANCE" "$CHAIN/getproof-$BLOCK.json" "$OPERATOR" "$PAYER"
+lc attest-private "$LC_BIN" "$PROGRAM" "$INSTANCE" "$PROOF" "$OPERATOR" "$PAYER"
 private_fee lc-attest-private-charged "$FP"
 expect accepted
 expect_private
-fi
-
-step "Attestations to older blocks, through the latest record"
-# EIP-2935: the history contract's slot for a block HISTORY_GAP back, proven under the record's
-# state root, then that block's header. The parent-hash chain: CHAIN_GAP headers back from the
-# record's own block. Each attests the same WETH slot, at the older block.
-OLD=$((BLOCK - ${HISTORY_GAP:-1000})); NEAR=$((BLOCK - ${CHAIN_GAP:-3}))
-./scripts/fetch-chain.sh "$CHAIN" history "$BLOCK" "$OLD" | sed 's/^/  /'
-BLOCK=$OLD ./scripts/fetch-chain.sh "$CHAIN" proof "$WETH" "$WETH_SLOT" | sed 's/^/  /'
-# A counting loop, not seq: macOS's seq prints block numbers this large as 2.6e+07.
-for ((n = NEAR; n <= BLOCK; n++)); do ./scripts/fetch-chain.sh "$CHAIN" header "$n" | sed 's/^/  /'; done
-BLOCK=$NEAR ./scripts/fetch-chain.sh "$CHAIN" proof "$WETH" "$WETH_SLOT" | sed 's/^/  /'
-for pair in "history $OLD" "history-chain $NEAR"; do
-    read -r case at <<<"$pair"
-    lc attest-public "$PROGRAM" "$INSTANCE" "$CHAIN/getproof-$at.json" "$PAYER" "$case"
-    expect accepted
-    sync_private
-    FP=$(fee_payer_balance)
-    lc attest-private "$LC_BIN" "$PROGRAM" "$INSTANCE" "$CHAIN/getproof-$at.json" "$OPERATOR" "$PAYER" "$case"
-    private_fee "lc-attest-private-$case-charged" "$FP"
-    expect accepted
-    expect_private
-done
 
 step "Negative attestations: each breaks one thing, and each must be refused"
 # On the public path the sequencer runs the check, so a broken attestation is included and
@@ -217,7 +201,6 @@ step "Negative attestations: each breaks one thing, and each must be refused"
 # public call too before proving, so an honest wallet stops there (unprovable). A wallet that
 # skipped that step would reach the sequencer, which runs CheckRecord itself; this script
 # doesn't test that path.
-PROOF="$CHAIN/getproof-$BLOCK.json"
 for case in tampered-proof false-claim; do
     lc attest-public "$PROGRAM" "$INSTANCE" "$PROOF" "$PAYER" "$case"
     expect_dryrun_refused
@@ -229,13 +212,5 @@ done
 sync_private
 lc attest-private "$LC_BIN" "$PROGRAM" "$INSTANCE" "$PROOF" "$OPERATOR" "$PAYER" unheld-record
 expect unprovable reverted rejected
-# A header that doesn't hash to what the history contract holds for its block.
-lc attest-public "$PROGRAM" "$INSTANCE" "$CHAIN/getproof-$OLD.json" "$PAYER" history-forged
-expect_dryrun_refused
-expect reverted
-sync_private
-lc attest-private "$LC_BIN" "$PROGRAM" "$INSTANCE" "$CHAIN/getproof-$OLD.json" "$OPERATOR" "$PAYER" history-forged
-expect unprovable
-
-printf '\n\033[1;32mPASS\033[0m  eth_lc tracked live mainnet on LEZ and attested a storage slot publicly and privately, at the recorded block and at older ones; every broken attestation was refused.\n'
+printf '\n\033[1;32mPASS\033[0m  eth_lc followed recorded mainnet on LEZ through the committee handoffs and attested a storage slot publicly and privately; every broken attestation was refused.\n'
 echo "Fees and times: $FEES"

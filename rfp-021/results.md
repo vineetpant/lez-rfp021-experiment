@@ -9,12 +9,17 @@ and the conditions for a timed run are in [bench-plan.md](bench-plan.md). Logs a
 Each message of the program, run in RISC Zero's executor at LEZ's metering, on the recorded
 mainnet segment in `tests/data/mainnet-1904` (`tests/cost.rs`). measured, 9 Nov 2026.
 
-| Action | Cycles | Budget |
-|---|---:|---|
-| Update, committee handoff (private) | 12.53M | proven; the fee is flat |
-| Update, finality (private) | 11.39M | proven; the fee is flat |
-| Init (public) | 1.36M | 10M per transaction |
-| Attestation, storage slot (public) | 0.30M | 2M default gas limit |
+| Action | Cycles | Message | Budget |
+|---|---:|---:|---|
+| Update, committee handoff (private) | 12.53M | — | proven; the fee is flat |
+| Update, finality (private) | 11.39M | — | proven; the fee is flat |
+| Init (public) | 1.36M | — | 10M per transaction |
+| Attestation, storage slot (public) | 301,587 | 7,121 B | 2M default gas limit |
+| Attestation, account balance (public) | 179,815 | 4,045 B | 2M default gas limit |
+| Attestation, receipt log (public) | 83,003 | 1,761 B | 2M default gas limit |
+
+The attestation rows are from the typed-predicate program (10 Nov 2026); the update and Init
+rows didn't change with it.
 
 For reference, the same update through Helios `consensus-core` in the program is 39.5M cycles,
 about 34M of it in its BLS library (proposal section 11).

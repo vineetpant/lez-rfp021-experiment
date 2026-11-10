@@ -66,9 +66,10 @@ fn update_cycles() {
     }
 }
 
-#[test]
-fn attest_cycles() {
-    use eth_lc_types::statement::{Attestation, Op, Predicate, Proof};
+/// One public `Attest` of `attestation` against the record the segment ends on: its cycles, which
+/// LEZ meters as exec gas, and its message's size, which with the transaction's envelope is the
+/// storage gas.
+fn attest(attestation: eth_lc_types::statement::Attestation) -> (u64, usize) {
     use eth_lc_types::{RecordState, record_account};
     let chain = mainnet();
     let (mut steps, _) = support::steps(&chain);
@@ -76,21 +77,41 @@ fn attest_cycles() {
     let u = oracle::update(&s.update);
     let record = eth_lc_types::record_of(&chain.cfg, &u.finalized_header, None, 512).unwrap();
     let (instance, program) = (AccountId::new([7; 32]), AccountId::new([9; 32]));
-    let proof = lez_hello_world::chain::storage_proof(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/data/mainnet-1904/getproof-26376237.json")).unwrap();
-    let attestation = Attestation { chain_id: 1, proofs: vec![Proof::Storage(proof)], predicates: vec![Predicate::CheckSlotValue { proof: 0, op: Op::Greater, value: [0; 32] }] };
+    let message = Program::serialize_message(&LcMsg::Attest { instance, attestation, ancestry: None, reply: false }).unwrap();
+    let bytes = message.len();
     let input = ReceiveInput {
         receiver: Actor::new(record_account(&program, &instance, record.slot), program),
         from: None,
         is_authorized: false,
         pre_state: ActorState::from(borsh::to_vec(&RecordState { instance, record }).unwrap()),
-        message: Program::serialize_message(&LcMsg::Attest { instance, attestation, ancestry: None, reply: false }).unwrap(),
+        message,
     };
     let mut builder = ExecutorEnv::builder();
     builder.session_limit(Some(PROBE));
     Program::write_receive_input(&input, &mut builder).unwrap();
     match default_executor().execute(builder.build().unwrap(), &elf()) {
-        Ok(info) => println!("Attest (storage slot): {} cycles", info.cycles()),
+        Ok(info) => (info.cycles(), bytes),
         Err(e) => panic!("Attest: {e:#}"),
+    }
+}
+
+#[test]
+fn attest_cycles() {
+    use eth_lc_types::mpt::AccountProof;
+    use eth_lc_types::statement::{Attestation, Op, Predicate, Proof};
+    let weth = lez_hello_world::chain::storage_proof(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/data/mainnet-1904/getproof-26376237.json")).unwrap();
+    let account = AccountProof { address: weth.address, account: weth.account.clone(), account_proof: weth.account_proof.clone() };
+    let (_, receipt) = support::receipt_proof(2);
+    let zero = [0u8; 32];
+    let cases = [
+        ("storage slot", Attestation { chain_id: 1, proofs: vec![Proof::Storage(weth)], predicates: vec![Predicate::CheckSlotValue { proof: 0, op: Op::Greater, value: zero }] }),
+        ("account balance", Attestation { chain_id: 1, proofs: vec![Proof::Account(account)], predicates: vec![Predicate::CheckAccountBalance { proof: 0, op: Op::Greater, value: zero }] }),
+        ("receipt log", Attestation { chain_id: 1, proofs: vec![Proof::Receipt(receipt)], predicates: vec![Predicate::CheckLogTopic { proof: 0, index: 0, op: Op::NotEqual, value: zero }] }),
+    ];
+    for (name, attestation) in cases {
+        let (cycles, bytes) = attest(attestation);
+        assert!(cycles < CAP);
+        println!("Attest ({name}): {cycles} cycles, message {bytes} B");
     }
 }
 

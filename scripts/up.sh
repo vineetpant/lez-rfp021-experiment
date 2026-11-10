@@ -91,7 +91,7 @@ for i in $(seq 1 30); do
     if grep -q "All looks good" <<<"$health"; then
         printf '  healthy after %ds\n\n' $((i * 10))
         echo "Devnet up. Logs in $LOGS"
-        echo "Next: ./scripts/hello.sh"
+        echo "Next: ./scripts/lc.sh"
         exit 0
     fi
     printf '%s\n--- attempt %d ---\n%s\n' "$(date -u +%H:%M:%S)" "$i" "$health" >> "$LOGS/health.log"

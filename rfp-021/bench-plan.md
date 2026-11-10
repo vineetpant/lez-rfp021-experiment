@@ -23,7 +23,7 @@ The reference laptop is an Apple M3 Pro, 11 cores, 18 GB, CPU proving, default s
 
 | | What | How | When |
 |---|---|---|---|
-| Cycles per action | Init, a handoff update, a finality update, an attestation per fact type | RISC Zero's executor at LEZ's metering (`tests/cost.rs`) | done |
+| Cycles per action | Init, a handoff update, a finality update, an attestation per proof kind (storage, account, receipt log) | RISC Zero's executor at LEZ's metering (`tests/cost.rs`) | done |
 | Node runs | Every action's charge, proving time, peak memory, outcome; what each private transaction publishes | `scripts/lc.sh` on a fresh v0.4 devnet, real proofs | done |
 | Verifier against Helios | Same verdict and store on recorded mainnet and every adversarial case | `tests/oracle.rs`, `tests/adversarial.rs` | done |
 | Lowest workable RAM | Proving at smaller segment sizes | the prover's segment limit | M0 |

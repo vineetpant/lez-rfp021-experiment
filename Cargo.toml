@@ -3,7 +3,7 @@ name = "lez-hello-world"
 version = "0.1.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
-description = "A working hello world on the Logos Execution Zone"
+description = "An Ethereum light client and state attestation on the Logos Execution Zone"
 
 # LEZ crates, pinned to the tag this was verified against. Upstream publishes
 # versions as git tags and offers no backward compatibility yet, so a floating

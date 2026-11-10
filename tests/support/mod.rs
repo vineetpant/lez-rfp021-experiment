@@ -10,7 +10,7 @@ use helios_consensus_core::types::LightClientStore;
 use lez_hello_world::chain::{Chain, load_chain};
 
 /// Periods 1904–1906 of mainnet: a bootstrap at slot 15597568, the best update of each period
-/// (two committee handoffs), and a finality update. Fetched with `scripts/fetch-chain.sh`.
+/// (two committee handoffs), and a finality update, recorded from a beacon node.
 pub fn mainnet() -> Chain {
     load_chain(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/data/mainnet-1904"), 1).expect("the recorded segment loads")
 }
@@ -71,4 +71,69 @@ pub fn steps(chain: &Chain) -> (Vec<Step>, core::LightClientStore) {
         }
     }
     (out, store)
+}
+
+// ---- receipts of block 26376237, as an execution node serves them ----
+
+use alloy_rlp::{BufMut, Encodable, Header};
+use alloy_trie::{HashBuilder, Nibbles, proof::ProofRetainer};
+use eth_lc_types::mpt::ReceiptProof;
+use lez_hello_world::chain::hex_decode;
+use serde_json::Value;
+
+fn hex(v: &Value) -> Vec<u8> {
+    hex_decode(v.as_str().unwrap()).unwrap()
+}
+
+fn uint(v: &Value) -> u64 {
+    u64::from_str_radix(v.as_str().unwrap().trim_start_matches("0x"), 16).unwrap()
+}
+
+fn list(items: &[Vec<u8>]) -> Vec<u8> {
+    let payload: Vec<u8> = items.concat();
+    let mut out = Vec::new();
+    Header { list: true, payload_length: payload.len() }.encode(&mut out);
+    out.put_slice(&payload);
+    out
+}
+
+pub fn rlp<T: Encodable + ?Sized>(v: &T) -> Vec<u8> {
+    let mut out = Vec::new();
+    v.encode(&mut out);
+    out
+}
+
+/// A receipt from `eth_getBlockReceipts`, encoded as it sits in the receipt trie (EIP-2718).
+pub fn encode_receipt(r: &Value) -> Vec<u8> {
+    let logs: Vec<Vec<u8>> = r["logs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|l| {
+            let topics: Vec<Vec<u8>> = l["topics"].as_array().unwrap().iter().map(|t| rlp(&hex(t)[..])).collect();
+            list(&[rlp(&hex(&l["address"])[..]), list(&topics), rlp(&hex(&l["data"])[..])])
+        })
+        .collect();
+    let body = list(&[rlp(&uint(&r["status"])), rlp(&uint(&r["cumulativeGasUsed"])), rlp(&hex(&r["logsBloom"])[..]), list(&logs)]);
+    match uint(&r["type"]) {
+        0 => body,
+        t => [vec![t as u8], body].concat(),
+    }
+}
+
+/// A proof of transaction `tx`'s receipt, built from the block's receipts: the trie root it
+/// rebuilds, and the proof.
+pub fn receipt_proof(tx: u64) -> ([u8; 32], ReceiptProof) {
+    let j: Value = serde_json::from_slice(&std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/data/mainnet-1904/receipts-26376237.json")).unwrap()).unwrap();
+    let receipts = j["result"].as_array().unwrap();
+    let mut leaves: Vec<(Nibbles, Vec<u8>)> = receipts.iter().enumerate().map(|(i, r)| (Nibbles::unpack(rlp(&(i as u64))), encode_receipt(r))).collect();
+    leaves.sort_by(|a, b| a.0.cmp(&b.0));
+    let target = Nibbles::unpack(rlp(&tx));
+    let mut hb = HashBuilder::default().with_proof_retainer(ProofRetainer::new(vec![target]));
+    for (k, v) in &leaves {
+        hb.add_leaf(*k, v);
+    }
+    let root = hb.root();
+    let proof = hb.take_proof_nodes().matching_nodes_sorted(&target).into_iter().map(|(_, n)| n.to_vec()).collect();
+    (root.0, ReceiptProof { tx_index: tx, receipt: encode_receipt(&receipts[tx as usize]), proof, log_index: 0 })
 }
