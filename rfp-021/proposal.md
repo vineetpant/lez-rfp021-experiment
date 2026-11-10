@@ -447,10 +447,12 @@ what lets the instance run on two updates per period (section 9).
   `statement::check` as the direct path and writes the statement once to an account derived
   from the instance and the statement ID. Consumers that care about the same Ethereum state read
   that account instead of each verifying, so the cost is paid once. The verification core and
-  its audit surface are shared with the direct path, as in RFP-020. The docs state the trade:
-  the direct path trusts no one, and a consumer reading a recorded statement trusts the program
-  that wrote it, which is the same program, so only that the account is the one the ID derives.
-  It is public by nature, so it is for public consumers only.
+  its audit surface are shared with the direct path, as in RFP-020. The docs state the trade the
+  RFP asks for: a consumer reading a recorded statement trusts whoever wrote it. Here only the
+  program can write that account, after the same check, so a consumer that confirms the account
+  is the one the ID derives trusts nothing more; but it acts on a result computed in an earlier
+  transaction, which the direct path (F.7) avoids. It is public by nature, so it is for public
+  consumers only.
 - **Batching (soft #2).** A claim already carries several conditions over one fact; a batch
   carries several facts under one record in one message, so the record is read and the message
   decoded once, and each fact gets its own statement ID (section 7). Measured per extra fact in
