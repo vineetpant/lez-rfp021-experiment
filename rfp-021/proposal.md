@@ -145,6 +145,14 @@ Liveness needs one update per sync-committee period (27.3 h). A stalled instance
 and anyone resumes it by submitting the missed periods' updates in order (R.7). Only an
 instance stalled past 14 days, the freshness bound, needs a fresh instance (F.10).
 
+**Replacing an instance (F.10, F.13).** An instance is replaced, never refreshed in place, when
+it has stalled past the freshness bound (updates are refused with `StaleStore`), or when its
+checkpoint or config is found wrong. The replacement is a new `Init` from a fresh checkpoint,
+with its own ID. A consumer migrates by verifying the new checkpoint through the core module's
+API (F.9) and binding to the new instance ID in a new version of its own config. Statements
+already made against the old instance's records stay valid (R.3); new attestations use the new
+instance. The migration guide is part of the consumer docs (S.4).
+
 ### 4. Update path A: proven (the operating mode)
 
 ```mermaid
@@ -155,9 +163,9 @@ sequenceDiagram
     S->>P: Update { store, update, committees }   (root call, hidden)
     Note over P: full check: BLS, branches, handoff
     participant R as Program, record account of the new header
-    P->>I: Advance { prev_store, next_store, block_hash }   (boundary message, published)
-    Note over I: accept only from own program,<br/>only if prev_store == current
-    I->>R: WriteRecord { record, block_hash }
+    P->>I: Advance { cfg_hash, prev, next, record }   (boundary message, published)
+    Note over I: accept only from own program,<br/>only if cfg_hash and prev match what it holds
+    I->>R: WriteRecord { instance, record }
     Note over R: written once, only at the address<br/>its instance and slot derive
 ```
 
@@ -236,7 +244,7 @@ The consumer program builds the predicate. The user or relayer supplies only the
   private transaction.
   - The query, the Ethereum proof and the predicates are evaluated inside the proof and never
     published.
-  - **One message crosses the boundary:** `CheckRecord { record, block_hash }`, a synchronous
+  - **One message crosses the boundary:** `CheckRecord { instance, record }`, a synchronous
     call to that record's account. The account accepts it only from the program's own actors,
     only at the address its instance and slot derive, and refuses unless it holds that record.
     It carries the header record and nothing about the query.
@@ -433,6 +441,21 @@ what lets the instance run on two updates per period (section 9).
   record carries its execution block hash, verified inside the update's proof, so the chain
   starts from a hash the program checked.
 
+### 8b. Recorded statements and batching (soft #1, #2)
+
+- **Recorded-statement account (soft #1).** A third message, `Record`, runs the same
+  `statement::check` as the direct path and writes the statement once to an account derived
+  from the instance and the statement ID. Consumers that care about the same Ethereum state read
+  that account instead of each verifying, so the cost is paid once. The verification core and
+  its audit surface are shared with the direct path, as in RFP-020. The docs state the trade:
+  the direct path trusts no one, and a consumer reading a recorded statement trusts the program
+  that wrote it, which is the same program, so only that the account is the one the ID derives.
+  It is public by nature, so it is for public consumers only.
+- **Batching (soft #2).** A claim already carries several conditions over one fact; a batch
+  carries several facts under one record in one message, so the record is read and the message
+  decoded once, and each fact gets its own statement ID (section 7). Measured per extra fact in
+  M2.
+
 ### 9. Operator daemon (U.3, R.4, R.5, R.8–R.10)
 
 The daemon is a Logos module plus a Logos Core headless CLI.
@@ -449,10 +472,31 @@ The daemon is a Logos module plus a Logos Core headless CLI.
     the period's exec capacity ([derived](results.md#derived)). There is no heartbeat.
 - **Re-check before submit (R.9):** a losing racer pays its whole reserve (section 4). The daemon
   re-reads the instance immediately before sending and keeps its reserve tight.
-- **Deferral (R.10):** a per-instance randomized delay spreads cost across operators.
-  Documented with its effect on latency.
+- **Deferral (R.10):** a per-instance, per-period delay spreads cost across operators (section
+  13). Documented with its effect on latency.
 - **Restart (R.4, R.5):** the daemon resumes from the instance on LEZ. It never re-verifies from
   the checkpoint and never repeats work already applied.
+- **Running it (U.3):** standalone, as a Logos module with a Logos Core headless CLI.
+  Configurable consensus and execution endpoints (several of each, none trusted), the LEZ
+  sequencer endpoint and the instance ID; structured (JSON) logs of every fetch, check, proof
+  and submission; a clean shutdown on SIGINT/SIGTERM that finishes or abandons an in-flight
+  proof without submitting a partial result. The operator journey (install, configure, run,
+  monitor) is documented, with the metrics to watch: the instance's finalized slot against the
+  chain's, and the time since the last update.
+
+**The operator role (S.7).** No party is obliged to operate an instance: liveness rests on
+interested parties choosing to spend the gas.
+- **Needs:** a consensus endpoint and LEZ gas, plus a prover and a private account for the proven
+  path (the public split path needs no prover). No standing on Ethereum, and no permission:
+  anyone starts one (F.11).
+- **Costs:** per update about 0.47M exec gas and 224k storage gas, 5.3–5.5M at the base-fee
+  floor; 35.6–36.7 min and 8.4–8.7 GB of proving on the reference laptop (measured). At the
+  recommended cadence, about 11.05M a period.
+- **Cadence:** two updates per period, as above, plus on demand.
+- **Alongside other operators:** only one update per store applies; a losing submitter's update
+  reverts and it pays its reserve. The re-check and deferral (R.9, R.10) keep that rare.
+- **Detecting a stall:** the instance's finalized slot is behind the chain's by more than a
+  period, or no update has landed for longer than the cadence. Anyone can then resume it (R.7).
 
 ### 9b. Operator incentive (soft #5)
 
@@ -521,18 +565,33 @@ gives operators a reason to keep doing so.
     An attacker then needs supermajorities in two independently drawn committees: the luck
     probability is squared, and the bribe covers two sets of members.
   - **Value caps** per header or per period, for consumers that need neither.
+  - **A freeze authority** on the consumer side, as RFP-022 specifies, to halt minting when a
+    committee is suspected compromised.
+- **What a compromised committee can do (VS.4).** A colluding supermajority can sign a header
+  that was never finalized, and every record and statement under it then attests to state that
+  doesn't exist; it can't alter records already written, or statements made against honest
+  headers. Exposure is bounded by the consumer defences above.
 - The table is reproducible from the binomial tail:
   `sum(comb(512, i) * f**i * (1 - f)**(512 - i) for i in range(k, 513))`.
 - **No swappable verification (VS.3):** no `ProgramId` is held in mutable state. Instances are
-  immutable. Migration is to a new program version plus a new instance.
+  immutable. Migration is to a new program version plus a new instance. The consumer docs (S.4)
+  state the same rule for consumers: a consumer that holds this module's `ProgramId` in mutable
+  state lets whoever controls that pointer substitute a module that attests to anything, so a
+  consumer fixes the module and the instance it trusts in its own immutable code or config.
 - **Immutable deployment.** `from_own_program()` compares program addresses, not code, so the
   program is deployed with `ProgramHeader.immutable = true`. LEZ v0.4's loader then refuses
   `UpdateHeader` on it (`program_loader/core/src/lib.rs:93`). Segments and headers are
   write-once, so nothing else in the protocol can change the program. A protocol upgrade of LEZ
   itself is outside this guarantee, and the trust document says so.
-- **Config bound to the instance.** The checkpoint, chain ID, fork schedule and participation
-  threshold are part of the instance state that `Advance`'s `prev` must match, and part of
-  the instance ID. A submitter can't supply a weaker config.
+- **Config bound to the instance.** The checkpoint, chain ID, fork schedule and freshness bound
+  are written at `Init`; `Advance` carries the hash of the config the update was verified under
+  and is refused unless it matches the instance's, and the config is part of the instance ID
+  (F.14, F.15). The participation threshold is the specs' 2/3, fixed in the verifier; stricter
+  thresholds are the consumer's, from the record's signer count. A submitter can't supply a
+  weaker config.
+- **Accepted on proof validity alone (VS.6).** Nothing in `Update` or `Advance` reads who
+  submitted it: any account with a valid proof advances the instance, and an invalid one is
+  refused whoever sends it.
 - **Already exercised** ([`tests/adversarial.rs`](https://github.com/vineetpant/lez-hello-world/blob/main/tests/adversarial.rs)
   and [`tests/statement.rs`](https://github.com/vineetpant/lez-hello-world/blob/main/tests/statement.rs),
   passing, natively on recorded mainnet). Each asserts the exact error, next to an honest
@@ -570,6 +629,22 @@ No participant other than the checkpoint supplier and the sync committee can aff
 each liveness role can be filled by anyone. So no party, alone or as a class, can stop an
 attestation from eventually being produced: a consumer who needs a header can fetch the update
 and submit it itself.
+
+**What each participant can observe (S.6):**
+
+| Participant | Observes |
+|---|---|
+| Beacon API source | Which periods and updates an operator fetches; nothing about consumers |
+| Execution RPC | **The consumer's query**: the address, slot or transaction it fetches a proof for, and the requester's network address. A consumer that needs this private runs its own node, or fetches through the Logos Ethereum core module against its own endpoint; it also learns nothing it can link to the LEZ transaction, which carries no query detail (F.8) |
+| Operator | Public LEZ state and the update material, which are public anyway |
+| LEZ sequencer and everyone on LEZ | For a public attestation, the whole query. For a private one, only the program, the instance, the record used, the fee reserve and the time, from one-time aliases (section 6) |
+| Relayer (public path) | The consumer's public attestation, which is public once submitted |
+| Consumer's prover | Everything about the consumer's query; it runs on the consumer's own machine |
+
+**The trust model, stated to users and developers (VS.5).** Verification is trustless: LEZ
+accepts a header only on a valid proof of the sync committee's signature from the checkpoint
+forward. Every off-chain participant except the checkpoint supplier and the sync committee is
+liveness-only, and the user-facing and developer-facing docs say so.
 
 ### 11. Reuse assessment (R.6)
 
@@ -712,6 +787,12 @@ How each Reliability item is met, by mechanism, with where it is enforced and ho
 **R.12 Green CI.** GitHub Actions runs the native tests on every push (#30), and in M4 the
 end-to-end run on a standalone sequencer (S.2).
 
+### 14. Open source
+
+All code is released under the **MIT and Apache-2.0** dual licence (the repo's `LICENSE-MIT` and
+`LICENSE-APACHE`), as the RFP requires. Dependencies in the program are MIT, Apache-2.0 or both
+(`blst` Apache-2.0; Helios MIT, test-only; RISC Zero's forks and alloy, MIT/Apache-2.0).
+
 ---
 
 ## Milestones, payout and timeline
@@ -763,7 +844,7 @@ Every hard requirement maps to a design element and a test or artifact.
 | R.11 | Immutable records, no shared writes | Same-block private attest test |
 | R.12 | CI | Green default branch (#30) |
 | P.1 | Attest under the per-transaction budget | Node: 301k–549k exec gas against a 10M cap |
-| P.2 | Per action: cycles, gas, proof time, proof size | bench-plan.md |
+| P.2 | Per action: cycles, gas, proof time, proof size, extending RFP-020's methodology | bench-plan.md; `tests/cost.rs` reproduces the cycles; proof size 223,551 B, constant ([code-paths.md](code-paths.md)) |
 | P.3 | Amortised tracking cost at the recommended cadence | Two updates per period: [results.md](results.md#derived) |
 | P.4 | Laptop and minimum-spec proving | Node: updates 35.6–36.7 min, 8.4–8.7 GB; private attestation 14.2–15.2 min, 7.3–7.8 GB; declared minimum 16 GB |
 | P.5 | Latency breakdown | [results.md](results.md#derived): no update wait for a block before the latest record; 48–56 min on demand on the reference laptop |
