@@ -327,6 +327,9 @@ The consumer program builds the predicate. The user or relayer supplies only the
 
 **Helpers:** Solidity mapping-slot derivation.
 
+The full design of claims, statement IDs and the consumer's nullifiers, with a worked 10 ETH
+deposit, is in [statements.md](statements.md).
+
 **Statements.** A claim holds against one record, and the module returns a statement:
 
 ```
