@@ -319,14 +319,52 @@ The consumer program builds the predicate. The user or relayer supplies only the
 
 **Helpers:** Solidity mapping-slot derivation.
 
-**Statement IDs carry a nullifier-safety class** (F.6, S.4):
+**Statements.** A claim holds against one record, and the module returns a statement:
 
-- **Log statements:** ID over `(chain_id, block_hash, tx_index, log_index, log content)`. There
-  is one ID per occurrence, so it is safe as a one-shot nullifier.
-- **State statements:** ID over `(chain_id, address, slot, value)`. The same state gives the
-  same ID, as F.6 requires, so the same value at two different times collides.
-  - The docs mark these IDs "unsafe as a one-shot nullifier unless the slot is write-once".
-  - The reference vault uses a write-once deposit mapping.
+```
+Statement { instance, chain_id, block_number, facts: [ (class, id) … ], conditions }
+```
+
+- `instance` binds the statement to the instance whose record it was checked against, so a
+  consumer bound to one instance rejects another's (F.15). `chain_id` is the chain the record
+  belongs to, checked against the claim's (F.5).
+- One `(class, id)` per fact, in the order the claim gives them. A compound claim over several
+  facts (soft #4) carries one ID per fact, so a consumer keys its nullifier on the fact it means
+  to consume, never on a combination that a different compound could avoid.
+
+**Statement IDs (F.6).** Each fact's ID is a deterministic, collision-resistant hash of the
+Ethereum state it proves, and of nothing else:
+
+```
+id = SHA-256( "eth_lc/statement/v1" ‖ chain_id ‖ kind ‖ fields )
+```
+
+| Kind | Fields | Class |
+|---|---|---|
+| storage | `address ‖ slot ‖ value` | state |
+| account | `address ‖ nonce ‖ balance ‖ code_hash` | state |
+| log | `block_hash ‖ tx_index ‖ log_index ‖ address ‖ n_topics ‖ topics ‖ len(data) ‖ data` | occurrence |
+
+- **Deterministic.** The ID depends only on the attested state: not on the instance, the
+  record, the proof's bytes, the predicate or the path (public, private, dry run). So identical
+  state gives an identical ID, and two consumers with different predicates over one event derive
+  the same one, as F.6 asks.
+- **Collision-resistant.** Every field is fixed-width (integers as 8-byte little-endian, words
+  as 32 bytes) or length-prefixed, the kind is a tag byte, and the domain string is versioned, so
+  the encoding is injective and distinct state gives a distinct ID. A predicate over the account
+  (balance, nonce, code hash) yields an **account** fact, whose ID covers those fields; a
+  predicate over a slot yields a **storage** fact.
+- **Classes, carried in the statement** (S.4):
+  - **occurrence** (logs): one ID per event, safe as a one-shot nullifier.
+  - **state** (storage, account): the same state is the same ID at any block, as F.6 requires,
+    so the same value at two times collides. The docs mark these "unsafe as a one-shot
+    nullifier unless the state is write-once"; the reference vault uses a write-once deposit
+    mapping.
+- **Published derivation.** The encoding is part of the IDL (U.4), with test vectors, so a
+  consumer in any language derives the same ID without inventing its own.
+- **Tests (M2):** per kind, the same state at two blocks gives the same ID; one changed field
+  (including a moved topic/data boundary) gives a different one; the ID is equal on the public
+  path, the private path and the dry run.
 
 **Reference consumers (U.6):**
 
@@ -702,7 +740,7 @@ Every hard requirement maps to a design element and a test or artifact.
 | F.3 | Account, storage and receipt-log MPT, roots bound to the record | Inclusion tests; caller-root-ignored test. Node: storage slot accepted, tampered proof refused on both paths ([node run](results.md#node-run-real-proofs-on-a-lez-v04-devnet)) |
 | F.4 | Predicate language (section 7) | Consumer-defined predicate test, no module change |
 | F.5 | `chain_id` in instance and statement | Same contract on mainnet and Sepolia, cross-rejected |
-| F.6 | ID classes (section 7) | Equal-state and distinct-state tests |
+| F.6 | Deterministic, injective IDs per fact; classes carried in the statement (section 7) | Equal-state and distinct-state tests per kind; same ID on every path; published test vectors |
 | F.7 | Attest inside the consumer's transaction | Reference consumers |
 | F.8 | Private attest; one `CheckRecord` crossing from a blinded alias; refunds to the blinded alias | Node: every published field listed, and no private account, payer or query detail in the transaction. Full public-state diff (M2) |
 | F.9 | Write-once instance; checkpoint API | Immutability test; core-module API |
