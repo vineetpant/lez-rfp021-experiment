@@ -19,13 +19,13 @@ fn core_and_helios_walk_mainnet_to_the_same_store() {
     for (i, s) in steps.iter().enumerate() {
         let (after, advanced) = s.apply(&chain).unwrap();
         let h = s.helios(&chain, &s.update).expect("Helios accepts it too");
-        assert_eq!(after.finalized.slot, h.finalized_header.beacon().slot, "step {i}: finalized slot");
-        assert_eq!(beacon_root(&after.finalized), h.finalized_header.beacon().tree_hash_root().0, "step {i}: finalized header");
-        assert_eq!(after.current_committee, h.current_sync_committee.tree_hash_root().0, "step {i}: current committee");
-        assert_eq!(after.next_committee, h.next_sync_committee.as_ref().map(|c| c.tree_hash_root().0), "step {i}: next committee");
-        println!("step {i}: slot {} -> {} (advanced {advanced}), same store as Helios", s.store.finalized.slot, after.finalized.slot);
+        assert_eq!(after.finalized_header.slot, h.finalized_header.beacon().slot, "step {i}: finalized slot");
+        assert_eq!(beacon_root(&after.finalized_header), h.finalized_header.beacon().tree_hash_root().0, "step {i}: finalized header");
+        assert_eq!(after.current_sync_committee, h.current_sync_committee.tree_hash_root().0, "step {i}: current committee");
+        assert_eq!(after.next_sync_committee, h.next_sync_committee.as_ref().map(|c| c.tree_hash_root().0), "step {i}: next committee");
+        println!("step {i}: slot {} -> {} (advanced {advanced}), same store as Helios", s.store.finalized_header.slot, after.finalized_header.slot);
     }
-    assert_eq!(core::period(store.finalized.slot), 1906);
+    assert_eq!(core::sync_committee_period(store.finalized_header.slot), 1906);
 }
 
 #[test]
@@ -39,7 +39,7 @@ fn ssz_roots_equal_helios() {
             oracle::AnyUpdate::Update(u) => (u.attested_header(), u.finalized_header()),
             oracle::AnyUpdate::Finality(u) => (u.attested_header(), u.finalized_header()),
         });
-        for (o, h) in [(&ours.attested, &theirs.0), (&ours.finalized, &theirs.1)] {
+        for (o, h) in [(&ours.attested_header, &theirs.0), (&ours.finalized_header, &theirs.1)] {
             assert_eq!(beacon_root(&o.beacon), h.beacon().tree_hash_root().0, "beacon header");
             if let core::Execution::Payload(p) = &o.execution {
                 assert_eq!(core::payload_root(p), h.execution().unwrap().tree_hash_root().0, "payload header");

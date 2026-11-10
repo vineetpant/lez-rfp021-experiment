@@ -3,7 +3,7 @@
 //! Helios's own checks on the same input as a differential oracle ([`helios_update`]). Nothing
 //! here runs in the program.
 
-use crate::core::{self, Execution, PayloadHeader};
+use crate::core::{self, Execution};
 use crate::{ChainConfig, Root};
 use helios_consensus_core::consensus_spec::MainnetConsensusSpec as Spec;
 use helios_consensus_core::types::{
@@ -26,24 +26,24 @@ pub fn committee(c: &Committee) -> Vec<u8> {
     c.as_ssz_bytes()
 }
 
-fn beacon(b: &BeaconBlockHeader) -> core::BeaconHeader {
-    core::BeaconHeader { slot: b.slot, proposer_index: b.proposer_index, parent_root: b.parent_root.0, state_root: b.state_root.0, body_root: b.body_root.0 }
+fn beacon(b: &BeaconBlockHeader) -> core::BeaconBlockHeader {
+    core::BeaconBlockHeader { slot: b.slot, proposer_index: b.proposer_index, parent_root: b.parent_root.0, state_root: b.state_root.0, body_root: b.body_root.0 }
 }
 
 fn roots(branch: &[alloy_primitives::B256]) -> Vec<Root> {
     branch.iter().map(|b| b.0).collect()
 }
 
-pub fn header(h: &LightClientHeader) -> core::Header {
+pub fn header(h: &LightClientHeader) -> core::LightClientHeader {
     match h {
-        LightClientHeader::Gloas(g) => core::Header {
+        LightClientHeader::Gloas(g) => core::LightClientHeader {
             beacon: beacon(&g.beacon),
             execution: Execution::BlockHash(g.execution_block_hash.0),
             execution_branch: roots(&g.execution_branch),
         },
         _ => {
             let e = h.execution().expect("a header from Deneb on carries its payload header");
-            let payload = PayloadHeader {
+            let payload = core::ExecutionPayloadHeader {
                 parent_hash: e.parent_hash().0,
                 fee_recipient: e.fee_recipient().0.0,
                 state_root: e.state_root().0,
@@ -62,7 +62,7 @@ pub fn header(h: &LightClientHeader) -> core::Header {
                 blob_gas_used: e.blob_gas_used().copied().unwrap_or(0),
                 excess_blob_gas: e.excess_blob_gas().copied().unwrap_or(0),
             };
-            core::Header {
+            core::LightClientHeader {
                 beacon: beacon(h.beacon()),
                 execution: Execution::Payload(payload),
                 execution_branch: roots(h.execution_branch().expect("a payload branch")),
@@ -71,35 +71,35 @@ pub fn header(h: &LightClientHeader) -> core::Header {
     }
 }
 
-pub fn bootstrap(b: &Bootstrap<Spec>) -> core::Bootstrap {
-    core::Bootstrap { header: header(&b.header()), committee_branch: roots(b.current_sync_committee_branch()) }
+pub fn bootstrap(b: &Bootstrap<Spec>) -> core::LightClientBootstrap {
+    core::LightClientBootstrap { header: header(&b.header()), current_sync_committee_branch: roots(b.current_sync_committee_branch()) }
 }
 
-pub fn update(u: &AnyUpdate) -> core::Update {
+pub fn update(u: &AnyUpdate) -> core::LightClientUpdate {
     match u {
         AnyUpdate::Update(u) => {
             let next = u.next_sync_committee();
             let next = (*next != Committee::default()).then(|| (committee(next), roots(u.next_sync_committee_branch())));
             let agg = u.sync_aggregate();
-            core::Update {
-                attested: header(&u.attested_header()),
-                finalized: header(&u.finalized_header()),
+            core::LightClientUpdate {
+                attested_header: header(&u.attested_header()),
+                finalized_header: header(&u.finalized_header()),
                 finality_branch: roots(u.finality_branch()),
-                next_committee: next,
-                bits: agg.sync_committee_bits.as_ssz_bytes().try_into().expect("512 bits"),
-                signature: agg.sync_committee_signature.as_ssz_bytes().try_into().expect("96 bytes"),
+                next_sync_committee: next,
+                sync_committee_bits: agg.sync_committee_bits.as_ssz_bytes().try_into().expect("512 bits"),
+                sync_committee_signature: agg.sync_committee_signature.as_ssz_bytes().try_into().expect("96 bytes"),
                 signature_slot: *u.signature_slot(),
             }
         }
         AnyUpdate::Finality(u) => {
             let agg = u.sync_aggregate();
-            core::Update {
-                attested: header(&u.attested_header()),
-                finalized: header(&u.finalized_header()),
+            core::LightClientUpdate {
+                attested_header: header(&u.attested_header()),
+                finalized_header: header(&u.finalized_header()),
                 finality_branch: roots(u.finality_branch()),
-                next_committee: None,
-                bits: agg.sync_committee_bits.as_ssz_bytes().try_into().expect("512 bits"),
-                signature: agg.sync_committee_signature.as_ssz_bytes().try_into().expect("96 bytes"),
+                next_sync_committee: None,
+                sync_committee_bits: agg.sync_committee_bits.as_ssz_bytes().try_into().expect("512 bits"),
+                sync_committee_signature: agg.sync_committee_signature.as_ssz_bytes().try_into().expect("96 bytes"),
                 signature_slot: *u.signature_slot(),
             }
         }

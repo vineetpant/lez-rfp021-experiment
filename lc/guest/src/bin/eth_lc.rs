@@ -42,13 +42,14 @@ fn held_record(input: &ReceiveInput) -> RecordState {
     held
 }
 
-/// The statement for `claim`, proven against `record` or an earlier block it reaches.
-fn attest(record: &HeaderRecord, claim: &statement::Claim, ancestry: Option<Ancestry>) -> Statement {
+/// The statement for `attestation`, checked against `instance`'s `record` or an earlier block it
+/// reaches.
+fn attest(instance: &AccountId, record: &HeaderRecord, attestation: &statement::Attestation, ancestry: Option<Ancestry>) -> Statement {
     let target = match ancestry {
         None => record.clone(),
         Some(a) => target_record(record, &a).unwrap_or_else(|e| panic!("the ancestry verifies: {e:?}")),
     };
-    statement::check(&target, claim).unwrap_or_else(|e| panic!("the statement holds: {e:?}"))
+    statement::check(instance, &target, attestation).unwrap_or_else(|e| panic!("the statement holds: {e:?}"))
 }
 
 fn handle(input: &ReceiveInput) -> Response {
@@ -69,13 +70,13 @@ fn handle(input: &ReceiveInput) -> Response {
             let (next_store, advanced) =
                 core::update(&cfg, &store, &update, &current, next.as_deref()).unwrap_or_else(|e| panic!("the update verifies: {e:?}"));
             let record = advanced.then(|| {
-                record_of(&cfg, &update.finalized, rlp.as_deref(), core::signers(&update.bits) as u16)
+                record_of(&cfg, &update.finalized_header, rlp.as_deref(), core::signers(&update.sync_committee_bits) as u16)
                     .unwrap_or_else(|e| panic!("the finalized header's record: {e:?}"))
             });
             // A store goes stale `max_store_age` after its finalized slot. Bounding the
             // transaction there lets the sequencer's clock refuse an update to a stale store, on
             // top of the check against the update's own signature slot.
-            let stale_from = cfg.stale_from_ms(store.finalized.slot);
+            let stale_from = cfg.stale_from_ms(store.finalized_header.slot);
             Response::keep_state()
                 .send_sync(instance, &LcMsg::Advance { cfg_hash: cfg.hash(), prev: store, next: next_store, record })
                 .try_timestamp_window((None, Some(stale_from)))
@@ -105,10 +106,10 @@ fn handle(input: &ReceiveInput) -> Response {
             Response::set_state(write_once(input.pre_state.as_ref(), data))
         }
 
-        LcMsg::Attest { instance, claim, ancestry, reply } => {
+        LcMsg::Attest { instance, attestation, ancestry, reply } => {
             let held = held_record(input);
             assert_eq!(held.instance, instance, "a record of another instance");
-            let statement = attest(&held.record, &claim, ancestry);
+            let statement = attest(&instance, &held.record, &attestation, ancestry);
             let event = ProgramEvent { selector: selector("Attested(bytes32,uint64,uint64)"), data: borsh::to_vec(&statement).unwrap() };
             let response = Response::keep_state().event(event);
             match (reply, input.from) {
@@ -118,8 +119,8 @@ fn handle(input: &ReceiveInput) -> Response {
             }
         }
 
-        LcMsg::AttestPrivate { instance, record, claim, ancestry } => {
-            attest(&record, &claim, ancestry);
+        LcMsg::AttestPrivate { instance, record, attestation, ancestry } => {
+            attest(&instance.account_id, &record, &attestation, ancestry);
             let to = record_actor(input, &instance.account_id, record.slot);
             Response::keep_state().send_sync(to, &LcMsg::CheckRecord { instance: instance.account_id, record })
         }

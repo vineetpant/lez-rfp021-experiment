@@ -14,8 +14,8 @@ fn mainnet_verifies_from_the_checkpoint_through_two_handoffs() {
     let (steps, store) = steps(&chain);
     for (i, s) in steps.iter().enumerate() {
         let (after, advanced) = s.apply(&chain).unwrap();
-        println!("step {i}: slot {} -> {} (advanced {advanced})", s.store.finalized.slot, after.finalized.slot);
+        println!("step {i}: slot {} -> {} (advanced {advanced})", s.store.finalized_header.slot, after.finalized_header.slot);
     }
     assert!(steps.len() >= 3, "every update in the segment applies");
-    assert_eq!(core::period(store.finalized.slot), 1906);
+    assert_eq!(core::sync_committee_period(store.finalized_header.slot), 1906);
 }

@@ -1,5 +1,5 @@
-//! Merkle-Patricia proofs against a verified execution root, with `alloy-trie`: an account and
-//! one of its storage slots (`eth_getProof`), and one log of a transaction receipt.
+//! Merkle-Patricia proofs against a verified execution root, with `alloy-trie`: an account, an
+//! account and one of its storage slots (`eth_getProof`), and one log of a transaction receipt.
 //!
 //! `alloy-trie` checks a proof for an expected value, so the prover supplies the value: the
 //! account's fields, the slot's value, the receipt. The proof then establishes exactly that
@@ -21,6 +21,14 @@ pub struct Account {
     pub code_hash: Root,
 }
 
+/// An account under a state root: the account half of an `eth_getProof` response.
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub struct AccountProof {
+    pub address: [u8; 20],
+    pub account: Account,
+    pub account_proof: Vec<Vec<u8>>,
+}
+
 /// An account and one storage slot under a state root, as `eth_getProof` returns them.
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct StorageProof {
@@ -37,19 +45,25 @@ fn nodes(proof: &[Vec<u8>]) -> Vec<Bytes> {
     proof.iter().map(|n| Bytes::copy_from_slice(n)).collect()
 }
 
+/// Checks that the state trie under `state_root` holds the account at `address` with exactly
+/// these fields.
+pub fn verify_account(state_root: &Root, address: &[u8; 20], account: &Account, proof: &[Vec<u8>]) -> Result<(), Refusal> {
+    let leaf = TrieAccount {
+        nonce: account.nonce,
+        balance: U256::from_be_bytes(account.balance),
+        storage_root: b256(&account.storage_root),
+        code_hash: b256(&account.code_hash),
+    };
+    let mut encoded = Vec::new();
+    leaf.encode(&mut encoded);
+    let key = Nibbles::unpack(keccak256(address));
+    verify_proof(b256(state_root), key, Some(encoded), &nodes(proof)).map_err(|_| Refusal::InvalidInclusionProof)
+}
+
 /// Checks `p` under `state_root`: the account is in the state trie with exactly these fields,
 /// and the slot holds exactly this value (a zero value is proven absent, as Ethereum stores it).
 pub fn verify_storage(state_root: &Root, p: &StorageProof) -> Result<(), Refusal> {
-    let account = TrieAccount {
-        nonce: p.account.nonce,
-        balance: U256::from_be_bytes(p.account.balance),
-        storage_root: b256(&p.account.storage_root),
-        code_hash: b256(&p.account.code_hash),
-    };
-    let mut encoded = Vec::new();
-    account.encode(&mut encoded);
-    let key = Nibbles::unpack(keccak256(p.address));
-    verify_proof(b256(state_root), key, Some(encoded), &nodes(&p.account_proof)).map_err(|_| Refusal::InvalidInclusionProof)?;
+    verify_account(state_root, &p.address, &p.account, &p.account_proof)?;
 
     let value = U256::from_be_bytes(p.value);
     let expected = (!value.is_zero()).then(|| {
@@ -58,7 +72,7 @@ pub fn verify_storage(state_root: &Root, p: &StorageProof) -> Result<(), Refusal
         v
     });
     let key = Nibbles::unpack(keccak256(p.slot));
-    verify_proof(account.storage_root, key, expected, &nodes(&p.storage_proof)).map_err(|_| Refusal::InvalidInclusionProof)
+    verify_proof(b256(&p.account.storage_root), key, expected, &nodes(&p.storage_proof)).map_err(|_| Refusal::InvalidInclusionProof)
 }
 
 /// One log of a receipt under a receipts root: the receipt, EIP-2718 encoded as it sits in the

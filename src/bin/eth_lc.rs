@@ -53,9 +53,9 @@ use std::{collections::BTreeMap, time::Instant};
 
 use common::transaction::LeeTransaction;
 use eth_lc_types::history::{Ancestry, history_slot, target_record};
-use eth_lc_types::statement::{self, Op, Subject, Condition, Fact, Claim};
+use eth_lc_types::statement::{self, Attestation, Op, Predicate, Proof};
 use eth_lc_types::oracle::{self, AnyUpdate};
-use eth_lc_types::{HeaderRecord, Instance, LcMsg, RecordState, Store, core, record_account, record_of, record_seed};
+use eth_lc_types::{HeaderRecord, Instance, LcMsg, RecordState, LightClientStore, core, record_account, record_of, record_seed};
 use lee::{
     AccountId, Actor, BoundaryStep, native_token,
     privacy_preserving_transaction::circuit::ProgramCatalog, program::Program,
@@ -137,10 +137,10 @@ async fn read_record(
 
 /// An update that advances an instance, checked natively, with everything `Update` sends.
 struct NextUpdate {
-    update: core::Update,
+    update: core::LightClientUpdate,
     current: Vec<u8>,
     next: Option<Vec<u8>>,
-    store: Store,
+    store: LightClientStore,
     record: Option<HeaderRecord>,
     handoff: bool,
 }
@@ -153,10 +153,10 @@ fn next_update(held: &Instance, dir: &str) -> anyhow::Result<NextUpdate> {
     next_update_in(&chain, &held.store)
 }
 
-fn next_update_in(chain: &Chain, store: &Store) -> anyhow::Result<NextUpdate> {
+fn next_update_in(chain: &Chain, store: &LightClientStore) -> anyhow::Result<NextUpdate> {
     let committee = |root: &[u8; 32]| chain.committee(root).map(oracle::committee);
-    let current = committee(&store.current_committee).ok_or_else(|| anyhow::anyhow!("the segment lacks the current committee's keys"))?;
-    let next = match &store.next_committee {
+    let current = committee(&store.current_sync_committee).ok_or_else(|| anyhow::anyhow!("the segment lacks the current committee's keys"))?;
+    let next = match &store.next_sync_committee {
         Some(root) => Some(committee(root).ok_or_else(|| anyhow::anyhow!("the segment lacks the next committee's keys"))?),
         None => None,
     };
@@ -164,19 +164,18 @@ fn next_update_in(chain: &Chain, store: &Store) -> anyhow::Result<NextUpdate> {
     for u in &chain.updates {
         let update = oracle::update(u);
         let Ok((after, advanced)) = core::update(&chain.cfg, store, &update, &current, next.as_deref()) else { continue };
-        let record = if advanced { Some(record_of(&chain.cfg, &update.finalized, None, core::signers(&update.bits) as u16).map_err(|e| anyhow::anyhow!("{e:?}"))?) } else { None };
-        let handoff = matches!(u, AnyUpdate::Update(_)) && after.next_committee != store.next_committee;
-        if best.as_ref().is_none_or(|b| after.finalized.slot > b.store.finalized.slot) {
+        let record = if advanced { Some(record_of(&chain.cfg, &update.finalized_header, None, core::signers(&update.sync_committee_bits) as u16).map_err(|e| anyhow::anyhow!("{e:?}"))?) } else { None };
+        let handoff = matches!(u, AnyUpdate::Update(_)) && after.next_sync_committee != store.next_sync_committee;
+        if best.as_ref().is_none_or(|b| after.finalized_header.slot > b.store.finalized_header.slot) {
             best = Some(NextUpdate { update, current: current.clone(), next: next.clone(), store: after, record, handoff });
         }
     }
-    best.ok_or_else(|| anyhow::anyhow!("nothing in the segment advances the instance past slot {}", store.finalized.slot))
+    best.ok_or_else(|| anyhow::anyhow!("nothing in the segment advances the instance past slot {}", store.finalized_header.slot))
 }
 
-/// An `eth_getProof` response as a statement that the slot holds a nonzero value.
-/// The query an attestation sends: the slot is nonzero, by its `eth_getProof` proof. The
-/// negative cases break it one way each.
-fn storage_claim(getproof: &str, case: &str) -> anyhow::Result<Claim> {
+/// The attestation sent: the slot is nonzero, by its `eth_getProof` proof. The negative cases
+/// break it one way each.
+fn storage_attestation(getproof: &str, case: &str) -> anyhow::Result<Attestation> {
     let mut proof = storage_proof(&abs(getproof)?)?;
     let mut op = Op::Greater;
     match case {
@@ -190,10 +189,10 @@ fn storage_claim(getproof: &str, case: &str) -> anyhow::Result<Claim> {
         "false-claim" => op = Op::Equal,
         other => anyhow::bail!("unknown attestation case {other}\n{USAGE}"),
     }
-    Ok(Claim {
+    Ok(Attestation {
         chain_id: CHAIN_ID,
-        fact: Fact::Storage(proof),
-        conditions: vec![Condition { subject: Subject::StorageValue, op, rhs: [0; 32] }],
+        proofs: vec![Proof::Storage(proof)],
+        predicates: vec![Predicate::CheckSlotValue { proof: 0, op, value: [0; 32] }],
     })
 }
 
@@ -313,8 +312,8 @@ async fn report_published<C: wallet::WalletSequencerClient>(
 
 /// What a storage attestation must keep private: the account, the slot, and the proof leaves,
 /// which hold the account's state and the slot's value.
-fn query_secrets(claim: &Claim) -> Vec<(String, Vec<u8>)> {
-    let Fact::Storage(p) = &claim.fact else { return vec![] };
+fn query_secrets(attestation: &Attestation) -> Vec<(String, Vec<u8>)> {
+    let Some(Proof::Storage(p)) = attestation.proofs.first() else { return vec![] };
     let mut out = vec![("queried address".to_owned(), p.address.to_vec()), ("queried slot".to_owned(), p.slot.to_vec())];
     out.extend(p.account_proof.last().map(|n| ("account leaf".to_owned(), n.clone())));
     out.extend(p.storage_proof.last().map(|n| ("storage leaf".to_owned(), n.clone())));
@@ -425,7 +424,7 @@ async fn main() -> anyhow::Result<()> {
             fees::report_public_tx(&client, "lc-init", tx, before, after).await?;
             fees::report_status(&client, "lc-init", tx, block).await?;
             let held = read_instance(&client, program, instance).await?;
-            println!("initialised at slot {} block {}", held.store.finalized.slot, held.latest.block_number);
+            println!("initialised at slot {} block {}", held.store.finalized_header.slot, held.latest.block_number);
         }
 
         "update" => {
@@ -436,14 +435,14 @@ async fn main() -> anyhow::Result<()> {
             let next = next_update(&held, &dir)?;
             println!(
                 "update: slot {} -> {} (block {}), handoff {}, signers {}",
-                held.store.finalized.slot,
-                next.store.finalized.slot,
+                held.store.finalized_header.slot,
+                next.store.finalized_header.slot,
                 next.record.as_ref().map_or(held.latest.block_number, |r| r.block_number),
                 next.handoff,
                 next.record.as_ref().map_or(0, |r| r.signers),
             );
             let advances = next.record.is_some();
-            let next_slot = next.store.finalized.slot;
+            let next_slot = next.store.finalized_header.slot;
             let message = LcMsg::Update {
                 instance: Actor::new(instance, program),
                 cfg: held.cfg,
@@ -476,13 +475,13 @@ async fn main() -> anyhow::Result<()> {
             fees::report_status(&client, "lc-update", tx, block).await?;
             report_published(&wallet_core, &client, "lc-update", (program, instance, record_account(&program, &instance, next_slot)), tx, vec![("payer".to_owned(), payer.as_ref().to_vec())]).await?;
             let held = read_instance(&client, program, instance).await?;
-            println!("advanced in block {block} to slot {} block {}", held.store.finalized.slot, held.latest.block_number);
+            println!("advanced in block {block} to slot {} block {}", held.store.finalized_header.slot, held.latest.block_number);
         }
 
         "attest-public" => {
             let (program, instance, getproof, payer) = (id(arg(1)?)?, id(arg(2)?)?, arg(3)?, id(arg(4)?)?);
             let case = a.get(5).map_or("honest", String::as_str);
-            let claim = storage_claim(getproof, case)?;
+            let attestation = storage_attestation(getproof, case)?;
             // The dry run: the check `Attest` makes, run here first against the record the
             // instance would use. A refused public attestation is charged its whole gas limit,
             // so an honest client stops on a refusal. The negative cases are sent anyway, to
@@ -494,7 +493,7 @@ async fn main() -> anyhow::Result<()> {
                 None => Ok(held.record.clone()),
                 Some(a) => target_record(&held.record, a),
             }
-            .and_then(|target| statement::check(&target, &claim))
+            .and_then(|target| statement::check(&instance, &target, &attestation))
             .map_or_else(|e| format!("{e:?}"), |_| "holds".to_owned());
             println!("DRYRUN step=lc-attest-public case={case} verdict={verdict}");
             if verdict != "holds" && !is_negative(case) {
@@ -502,7 +501,7 @@ async fn main() -> anyhow::Result<()> {
                 return Ok(());
             }
             // `Attest` goes to the record account itself: one read, whatever the number of records.
-            let message = LcMsg::Attest { instance, claim, ancestry, reply: false };
+            let message = LcMsg::Attest { instance, attestation, ancestry, reply: false };
             let account = record_mention(program, instance, slot);
             let before = fees::snapshot(&client, payer).await?;
             // Nothing is proven locally: the sequencer runs the check. So the time is submission
@@ -543,12 +542,12 @@ async fn main() -> anyhow::Result<()> {
                 record.slot += 1;
             }
             println!("attesting privately against block {} (slot {}), case {case}", record.block_number, record.slot);
-            let claim = storage_claim(getproof, case)?;
-            let mut secrets = query_secrets(&claim);
+            let attestation = storage_attestation(getproof, case)?;
+            let mut secrets = query_secrets(&attestation);
             secrets.extend(ancestry_secrets(&ancestry));
             secrets.push(("payer".to_owned(), payer.as_ref().to_vec()));
             let slot = record.slot;
-            let message = LcMsg::AttestPrivate { instance: Actor::new(instance, program), record, claim, ancestry };
+            let message = LcMsg::AttestPrivate { instance: Actor::new(instance, program), record, attestation, ancestry };
             let programs = ProgramCatalog::from([(program, Program::new(bytecode.into())?)]);
             let record_id = record_account(&program, &instance, slot);
             let accounts = vec![
@@ -588,7 +587,7 @@ async fn main() -> anyhow::Result<()> {
         "pending" => {
             let held = read_instance(&client, id(arg(1)?)?, id(arg(2)?)?).await?;
             match next_update(&held, &abs(arg(3)?)?) {
-                Ok(n) => println!("next update verifies: slot {} -> {}, handoff {}", held.store.finalized.slot, n.store.finalized.slot, n.handoff),
+                Ok(n) => println!("next update verifies: slot {} -> {}, handoff {}", held.store.finalized_header.slot, n.store.finalized_header.slot, n.handoff),
                 Err(e) => println!("no update yet: {e}"),
             }
         }
@@ -599,10 +598,10 @@ async fn main() -> anyhow::Result<()> {
             let written = read_record(&client, program, instance, held.latest.slot).await?.is_some_and(|r| r.record == held.latest);
             println!(
                 "finalized slot {} block {}; period {}; next committee known {}; latest record at {} (written {written}), latest block {}",
-                held.store.finalized.slot,
+                held.store.finalized_header.slot,
                 held.latest.block_number,
-                core::period(held.store.finalized.slot),
-                held.store.next_committee.is_some(),
+                core::sync_committee_period(held.store.finalized_header.slot),
+                held.store.next_sync_committee.is_some(),
                 record_account(&program, &instance, held.latest.slot),
                 held.latest.block_number,
             );
@@ -630,9 +629,9 @@ async fn main() -> anyhow::Result<()> {
             let store = core::bootstrap(&chain.cfg, &chain.checkpoint, &bootstrap, &oracle::committee(chain.bootstrap.current_sync_committee()))
                 .map_err(|e| anyhow::anyhow!("bootstrap refused: {e:?}"))?;
             let record = record_of(&chain.cfg, &bootstrap.header, None, 0).map_err(|e| anyhow::anyhow!("{e:?}"))?;
-            println!("bootstrap verifies: slot {} block {}", store.finalized.slot, record.block_number);
+            println!("bootstrap verifies: slot {} block {}", store.finalized_header.slot, record.block_number);
             match next_update_in(&chain, &store) {
-                Ok(n) => println!("next update verifies: slot {} -> {}, handoff {}", store.finalized.slot, n.store.finalized.slot, n.handoff),
+                Ok(n) => println!("next update verifies: slot {} -> {}, handoff {}", store.finalized_header.slot, n.store.finalized_header.slot, n.handoff),
                 Err(e) => println!("no update yet: {e}"),
             }
             return Ok(());

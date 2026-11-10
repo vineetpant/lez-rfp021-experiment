@@ -50,7 +50,7 @@ fn last_step() -> Step {
 }
 
 /// The core's verdict and Helios's on `update` in place of `step`'s.
-fn both(step: &Step, update: &AnyUpdate) -> (Result<core::Store, Refusal>, bool) {
+fn both(step: &Step, update: &AnyUpdate) -> (Result<core::LightClientStore, Refusal>, bool) {
     let chain = mainnet();
     (step.apply_other(&chain, update).map(|(s, _)| s), step.helios(&chain, update).is_ok())
 }
@@ -160,8 +160,8 @@ fn vs1_control_the_fabrication_is_self_consistent() {
     // fixture.
     let forger = Forger::new();
     let mut step = last_step();
-    step.store.current_committee = forger.root();
-    step.store.next_committee = None;
+    step.store.current_sync_committee = forger.root();
+    step.store.next_sync_committee = None;
     step.current = forger.keys();
     step.next = None;
     step.helios = oracle::helios_store(&step.helios.finalized_header, &forger.committee(), None);

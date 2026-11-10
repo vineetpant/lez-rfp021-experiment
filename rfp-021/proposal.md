@@ -333,7 +333,7 @@ deposit, is in [statements.md](statements.md).
 **Statements.** A claim holds against one record, and the module returns a statement:
 
 ```
-Statement { instance, chain_id, block_number, facts: [ (class, id) … ], conditions }
+Statement { instance, chain_id, block_number, facts: [ (class, id) … ], predicates }
 ```
 
 - `instance` binds the statement to the instance whose record it was checked against, so a

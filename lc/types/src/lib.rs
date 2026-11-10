@@ -29,7 +29,7 @@ use history::Ancestry;
 use lee_core::account::{AccountId, Actor};
 use lee_core::program::PdaSeed;
 use sha2::{Digest, Sha256};
-use statement::{Claim, Statement};
+use statement::{Attestation, Statement};
 
 pub type Root = [u8; 32];
 
@@ -73,7 +73,7 @@ impl ChainConfig {
     }
 }
 
-pub use crate::core::Store;
+pub use crate::core::LightClientStore;
 
 /// One finalized header as the program keeps it, and attestations are proven against.
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
@@ -93,7 +93,7 @@ pub struct HeaderRecord {
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct Instance {
     pub cfg: ChainConfig,
-    pub store: Store,
+    pub store: LightClientStore,
     pub latest: HeaderRecord,
 }
 
@@ -131,7 +131,7 @@ pub(crate) fn b256(r: &Root) -> B256 {
 /// The record of a verified finalized `header`. Before Gloas its execution fields are in the
 /// payload header the core proved under the body root; from Gloas only the block hash is, and
 /// `rlp`, the execution header that must hash to it, gives the rest.
-pub fn record_of(cfg: &ChainConfig, header: &core::Header, rlp: Option<&[u8]>, signers: u16) -> Result<HeaderRecord, Refusal> {
+pub fn record_of(cfg: &ChainConfig, header: &core::LightClientHeader, rlp: Option<&[u8]>, signers: u16) -> Result<HeaderRecord, Refusal> {
     let (block_number, block_hash, state_root, receipts_root) = match &header.execution {
         core::Execution::Payload(p) => (p.block_number, p.block_hash, p.state_root, p.receipts_root),
         core::Execution::BlockHash(hash) => {
@@ -163,7 +163,7 @@ pub enum LcMsg {
     Init {
         cfg: ChainConfig,
         checkpoint: Root,
-        bootstrap: core::Bootstrap,
+        bootstrap: core::LightClientBootstrap,
         committee: Vec<u8>,
         rlp: Option<Vec<u8>>,
     },
@@ -174,8 +174,8 @@ pub enum LcMsg {
     Update {
         instance: Actor,
         cfg: ChainConfig,
-        store: Store,
-        update: core::Update,
+        store: LightClientStore,
+        update: core::LightClientUpdate,
         current: Vec<u8>,
         next: Option<Vec<u8>>,
         rlp: Option<Vec<u8>>,
@@ -185,29 +185,29 @@ pub enum LcMsg {
     /// header.
     Advance {
         cfg_hash: Root,
-        prev: Store,
-        next: Store,
+        prev: LightClientStore,
+        next: LightClientStore,
         record: Option<HeaderRecord>,
     },
     /// Public, to a record account, only from this program: write `record` once.
     WriteRecord { instance: AccountId, record: HeaderRecord },
-    /// Public, to `instance`'s record account of the header to prove against: prove `claim`,
-    /// against that header or, through `ancestry`, an earlier block. Emits `Attested`, and with
-    /// `reply` also sends it back to the calling actor.
+    /// Public, to `instance`'s record account of the header to prove against: check
+    /// `attestation` against that header or, through `ancestry`, an earlier block. Emits
+    /// `Attested`, and with `reply` also sends it back to the calling actor.
     Attest {
         instance: AccountId,
-        claim: Claim,
+        attestation: Attestation,
         ancestry: Option<Ancestry>,
         reply: bool,
     },
-    /// Private, to the caller's own actor of this program: prove `claim` against `record`, or
+    /// Private, to the caller's own actor of this program: check `attestation` against `record`, or
     /// an earlier block through `ancestry`, then have `instance`'s record account of that slot
     /// confirm it holds `record`. Only that check is published; the query, the proof and the
     /// statement stay in the caller's proof.
     AttestPrivate {
         instance: Actor,
         record: HeaderRecord,
-        claim: Claim,
+        attestation: Attestation,
         ancestry: Option<Ancestry>,
     },
     /// Public, to a record account, only from this program: refuse unless it is `instance`'s

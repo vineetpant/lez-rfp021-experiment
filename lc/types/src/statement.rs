@@ -1,15 +1,23 @@
-//! What a consumer attests: a claim about Ethereum, made of a fact (a proof of state or of a log,
-//! checked against a record) and conditions on the values the fact establishes. A claim that
-//! holds becomes a statement, with a deterministic ID a consumer can key a nullifier on (F.3, F.4,
-//! F.5, F.6).
+//! Attestations and the statements they produce (`rfp-021/statements.md`).
+//!
+//! A consumer program sends an [`Attestation`]: Merkle-Patricia proofs against one verified
+//! header, and typed predicates over the values those proofs establish, all of which must hold
+//! (F.3, F.4, soft #4). [`check`] verifies every proof, evaluates every predicate and returns a
+//! [`Statement`] carrying one identifier per proof, derived from the proven Ethereum state alone,
+//! for a consumer to key its nullifier on (F.5, F.6, F.15).
 
 use crate::error::Refusal;
-use crate::mpt::{self, Log, ReceiptProof, StorageProof};
+use crate::mpt::{self, AccountProof, Log, ReceiptProof, StorageProof};
 use crate::{HeaderRecord, Root};
+use alloy_primitives::U256;
 use borsh::{BorshDeserialize, BorshSerialize};
+use lee_core::account::AccountId;
 use sha2::{Digest, Sha256};
 
-/// How a value is compared, as a 32-byte big-endian word.
+/// Domain of every statement ID; a new encoding gets a new version.
+const ID_DOMAIN: &[u8] = b"eth_lc/statement/v1";
+
+/// A comparison between a proven value and the consumer's, as unsigned 256-bit integers.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub enum Op {
     Equal,
@@ -20,146 +28,216 @@ pub enum Op {
     AtLeast,
 }
 
-/// A value a fact establishes.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
-pub enum Subject {
-    AccountBalance,
-    AccountNonce,
-    StorageValue,
-    LogEmitter,
-    LogTopic(u8),
-    /// The `i`-th 32-byte word of the log's data.
-    LogDataWord(u8),
+impl Op {
+    fn compare(self, proven: U256, expected: U256) -> bool {
+        match self {
+            Op::Equal => proven == expected,
+            Op::NotEqual => proven != expected,
+            Op::Less => proven < expected,
+            Op::AtMost => proven <= expected,
+            Op::Greater => proven > expected,
+            Op::AtLeast => proven >= expected,
+        }
+    }
 }
 
-/// `subject op rhs` must hold.
+/// One Merkle-Patricia proof against the header an attestation is checked under.
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
-pub struct Condition {
-    pub subject: Subject,
-    pub op: Op,
-    pub rhs: Root,
-}
-
-/// What is proven about Ethereum under a record.
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
-pub enum Fact {
+pub enum Proof {
     /// An account and one of its storage slots, under the state root.
     Storage(StorageProof),
-    /// One log of a transaction receipt, under the receipts root.
-    Log(ReceiptProof),
+    /// An account alone, under the state root.
+    Account(AccountProof),
+    /// One log of a transaction's receipt, under the receipts root.
+    Receipt(ReceiptProof),
+}
+
+/// A check over the values one of the attestation's proofs establishes. `proof` is that proof's
+/// position in [`Attestation::proofs`].
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub enum Predicate {
+    CheckSlotValue { proof: u8, op: Op, value: Root },
+    CheckAccountBalance { proof: u8, op: Op, value: Root },
+    CheckAccountNonce { proof: u8, op: Op, value: u64 },
+    CheckAccountCode { proof: u8, code_hash: Root },
+    CheckLogAddress { proof: u8, address: [u8; 20] },
+    CheckLogTopic { proof: u8, index: u8, op: Op, value: Root },
+    /// `word` is the index of a 32-byte word of the log's data.
+    CheckLogData { proof: u8, word: u8, op: Op, value: Root },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
-pub struct Claim {
-    /// The chain the consumer expects; refused if the record is another chain's (F.5).
+pub struct Attestation {
+    /// The chain the consumer means; refused against another chain's record (F.5).
     pub chain_id: u64,
-    pub fact: Fact,
-    /// All must hold: a compound condition over one header (soft #4).
-    pub conditions: Vec<Condition>,
+    pub proofs: Vec<Proof>,
+    pub predicates: Vec<Predicate>,
+}
+
+/// Whether an ID is safe as a one-shot nullifier.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub enum Class {
+    /// The same state gives the same ID at any block: one-shot only for state written once.
+    State,
+    /// An event: one ID per occurrence.
+    Occurrence,
+}
+
+/// What a statement says about one of the attestation's proofs.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub struct Fact {
+    pub class: Class,
+    pub id: Root,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct Statement {
-    pub id: Root,
+    /// The instance whose record the attestation was checked against (F.15).
+    pub instance: AccountId,
     pub chain_id: u64,
     pub block_number: u64,
-    pub conditions: Vec<Condition>,
+    /// One per proof, in the attestation's order.
+    pub facts: Vec<Fact>,
+    pub predicates: Vec<Predicate>,
 }
 
-fn word(b: &[u8]) -> Root {
-    let mut w = [0u8; 32];
-    let n = b.len().min(32);
-    w[32 - n..].copy_from_slice(&b[b.len() - n..]);
-    w
+/// A proof once verified: the Ethereum state it establishes.
+enum Proven {
+    Slot { address: [u8; 20], slot: Root, value: Root },
+    Account { address: [u8; 20], nonce: u64, balance: Root, code_hash: Root },
+    Event { tx_index: u64, log_index: u64, log: Log },
 }
 
-impl Op {
-    fn holds(self, lhs: &Root, rhs: &Root) -> bool {
-        match self {
-            Self::Equal => lhs == rhs,
-            Self::NotEqual => lhs != rhs,
-            Self::Less => lhs < rhs,
-            Self::AtMost => lhs <= rhs,
-            Self::Greater => lhs > rhs,
-            Self::AtLeast => lhs >= rhs,
+fn verify(header: &HeaderRecord, proof: &Proof) -> Result<Proven, Refusal> {
+    Ok(match proof {
+        Proof::Storage(p) => {
+            mpt::verify_storage(&header.state_root, p)?;
+            Proven::Slot { address: p.address, slot: p.slot, value: p.value }
         }
-    }
-}
-
-/// A verified fact: the values it establishes, and the material its statement ID covers.
-enum Proven<'a> {
-    Storage(&'a StorageProof),
-    Log(&'a ReceiptProof, Log),
-}
-
-impl Proven<'_> {
-    /// `subject`'s value, or `None` if this kind of fact doesn't establish it.
-    fn read(&self, subject: Subject) -> Option<Root> {
-        match (self, subject) {
-            (Self::Storage(p), Subject::AccountBalance) => Some(p.account.balance),
-            (Self::Storage(p), Subject::AccountNonce) => Some(word(&p.account.nonce.to_be_bytes())),
-            (Self::Storage(p), Subject::StorageValue) => Some(p.value),
-            (Self::Log(_, l), Subject::LogEmitter) => Some(word(&l.address)),
-            (Self::Log(_, l), Subject::LogTopic(i)) => l.topics.get(i as usize).copied(),
-            (Self::Log(_, l), Subject::LogDataWord(i)) => l.data.get(32 * i as usize..32 * i as usize + 32).map(word),
-            _ => None,
+        Proof::Account(p) => {
+            mpt::verify_account(&header.state_root, &p.address, &p.account, &p.account_proof)?;
+            Proven::Account { address: p.address, nonce: p.account.nonce, balance: p.account.balance, code_hash: p.account.code_hash }
         }
-    }
-
-    /// The statement ID. A **state** fact's ID covers `(chain_id, address, slot, value)`: the same
-    /// state is the same statement at any block, as F.6 requires, so it is safe as a one-shot
-    /// nullifier only for a write-once slot. A **log** fact's ID covers `(chain_id, block_hash,
-    /// tx_index, log_index, log)`: one per occurrence.
-    fn id(&self, r: &HeaderRecord) -> Root {
-        let mut h = Sha256::new();
-        h.update(b"eth_lc/statement/v1");
-        h.update(r.chain_id.to_le_bytes());
-        match self {
-            Self::Storage(p) => {
-                h.update([0u8]);
-                h.update(p.address);
-                h.update(p.slot);
-                h.update(p.value);
-            }
-            Self::Log(p, l) => {
-                h.update([1u8]);
-                h.update(r.block_hash);
-                h.update(p.tx_index.to_le_bytes());
-                h.update(p.log_index.to_le_bytes());
-                h.update(l.address);
-                l.topics.iter().for_each(|t| h.update(t));
-                h.update(&l.data);
-            }
-        }
-        h.finalize().into()
-    }
-}
-
-/// Checks `claim` against `record` and returns the statement, or the refusal.
-pub fn check(record: &HeaderRecord, claim: &Claim) -> Result<Statement, Refusal> {
-    if claim.chain_id != record.chain_id {
-        return Err(Refusal::WrongChain);
-    }
-    let proven = match &claim.fact {
-        Fact::Storage(p) => {
-            mpt::verify_storage(&record.state_root, p)?;
-            Proven::Storage(p)
-        }
-        Fact::Log(p) => {
-            let log = mpt::verify_receipt_log(&record.receipts_root, p)?;
-            // A reverted transaction's logs prove nothing happened.
+        Proof::Receipt(p) => {
+            let log = mpt::verify_receipt_log(&header.receipts_root, p)?;
+            // A reverted transaction's logs were never applied: the event didn't happen.
             if !log.success {
                 return Err(Refusal::ConditionUnsatisfied);
             }
-            Proven::Log(p, log)
+            Proven::Event { tx_index: p.tx_index, log_index: p.log_index, log }
         }
-    };
-    for c in &claim.conditions {
-        // A value the fact doesn't establish is refused, never read as zero.
-        let lhs = proven.read(c.subject).ok_or(Refusal::MalformedInput)?;
-        if !c.op.holds(&lhs, &c.rhs) {
+    })
+}
+
+fn u64_le(n: u64) -> [u8; 8] {
+    n.to_le_bytes()
+}
+
+impl Proven {
+    /// `SHA-256(domain ‖ chain_id ‖ kind ‖ fields)`, every field fixed-width or length-prefixed,
+    /// so distinct state never encodes the same (statements.md, section 3). Nothing about the
+    /// predicate, the record used or the instance enters it.
+    fn fact(&self, header: &HeaderRecord) -> Fact {
+        let mut id = Sha256::new();
+        id.update(ID_DOMAIN);
+        id.update(u64_le(header.chain_id));
+        let class = match self {
+            Proven::Slot { address, slot, value } => {
+                id.update([0]);
+                id.update(address);
+                id.update(slot);
+                id.update(value);
+                Class::State
+            }
+            Proven::Event { tx_index, log_index, log } => {
+                id.update([1]);
+                id.update(header.block_hash);
+                id.update(u64_le(*tx_index));
+                id.update(u64_le(*log_index));
+                id.update(log.address);
+                id.update(u64_le(log.topics.len() as u64));
+                log.topics.iter().for_each(|t| id.update(t));
+                id.update(u64_le(log.data.len() as u64));
+                id.update(&log.data);
+                Class::Occurrence
+            }
+            Proven::Account { address, nonce, balance, code_hash } => {
+                id.update([2]);
+                id.update(address);
+                id.update(u64_le(*nonce));
+                id.update(balance);
+                id.update(code_hash);
+                Class::State
+            }
+        };
+        Fact { class, id: id.finalize().into() }
+    }
+}
+
+/// Whether `predicate` holds of the proven state. A predicate over a value its proof doesn't
+/// establish is malformed: it is refused, never read as zero.
+fn holds(predicate: &Predicate, proven: &[Proven]) -> Result<bool, Refusal> {
+    let at = |i: u8| proven.get(i as usize).ok_or(Refusal::MalformedInput);
+    let word = |w: &Root| U256::from_be_bytes(*w);
+    Ok(match predicate {
+        Predicate::CheckSlotValue { proof, op, value } => match at(*proof)? {
+            Proven::Slot { value: v, .. } => op.compare(word(v), word(value)),
+            _ => return Err(Refusal::MalformedInput),
+        },
+        Predicate::CheckAccountBalance { proof, op, value } => match at(*proof)? {
+            Proven::Account { balance, .. } => op.compare(word(balance), word(value)),
+            _ => return Err(Refusal::MalformedInput),
+        },
+        Predicate::CheckAccountNonce { proof, op, value } => match at(*proof)? {
+            Proven::Account { nonce, .. } => op.compare(U256::from(*nonce), U256::from(*value)),
+            _ => return Err(Refusal::MalformedInput),
+        },
+        Predicate::CheckAccountCode { proof, code_hash } => match at(*proof)? {
+            Proven::Account { code_hash: c, .. } => c == code_hash,
+            _ => return Err(Refusal::MalformedInput),
+        },
+        Predicate::CheckLogAddress { proof, address } => match at(*proof)? {
+            Proven::Event { log, .. } => &log.address == address,
+            _ => return Err(Refusal::MalformedInput),
+        },
+        Predicate::CheckLogTopic { proof, index, op, value } => match at(*proof)? {
+            Proven::Event { log, .. } => {
+                let topic = log.topics.get(*index as usize).ok_or(Refusal::MalformedInput)?;
+                op.compare(word(topic), word(value))
+            }
+            _ => return Err(Refusal::MalformedInput),
+        },
+        Predicate::CheckLogData { proof, word: w, op, value } => match at(*proof)? {
+            Proven::Event { log, .. } => {
+                let start = 32 * *w as usize;
+                let chunk = log.data.get(start..start + 32).ok_or(Refusal::MalformedInput)?;
+                op.compare(U256::from_be_slice(chunk), word(value))
+            }
+            _ => return Err(Refusal::MalformedInput),
+        },
+    })
+}
+
+/// Checks `attestation` against `header`, a record of `instance` or a block it reaches, and
+/// returns the statement, or the refusal.
+pub fn check(instance: &AccountId, header: &HeaderRecord, attestation: &Attestation) -> Result<Statement, Refusal> {
+    if attestation.chain_id != header.chain_id {
+        return Err(Refusal::WrongChain);
+    }
+    if attestation.proofs.is_empty() {
+        return Err(Refusal::MalformedInput);
+    }
+    let proven = attestation.proofs.iter().map(|p| verify(header, p)).collect::<Result<Vec<_>, _>>()?;
+    for predicate in &attestation.predicates {
+        if !holds(predicate, &proven)? {
             return Err(Refusal::ConditionUnsatisfied);
         }
     }
-    Ok(Statement { id: proven.id(record), chain_id: record.chain_id, block_number: record.block_number, conditions: claim.conditions.clone() })
+    Ok(Statement {
+        instance: instance.clone(),
+        chain_id: header.chain_id,
+        block_number: header.block_number,
+        facts: proven.iter().map(|p| p.fact(header)).collect(),
+        predicates: attestation.predicates.clone(),
+    })
 }
