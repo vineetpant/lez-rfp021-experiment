@@ -28,13 +28,13 @@ fact holds on finalized Ethereum, verified by LEZ itself, with no committee or o
 
 We build that primitive as one LEZ 0.4 program.
 
-- **The verifier follows the consensus specs, runs on `blst`, and is checked against Helios.**
-  It implements the light-client protocol (the specs' validate and apply steps); BLS signatures
-  go through `blst`, with RISC Zero's accelerator. Helios `consensus-core` (a16z), the light
-  client whose consensus logic zkSecurity audited inside `r0vm-helios`, is the reference: on
-  recorded mainnet and on every adversarial case, both reach the same verdict and the same store.
-  Running Helios itself inside the program costs 3.5× the cycles, all of it in its BLS library
-  (measured; R.6, section 11).
+- **A verifier built on audited code, and held to audited logic (R.6).** The program checks each
+  update with the consensus specs' light-client protocol, about 300 lines, and verifies the
+  sync-committee signature with **`blst`**, the BLS library audited by NCC Group for the Ethereum
+  Foundation. Its verdicts are tested against **Helios `consensus-core`**, whose consensus logic
+  zkSecurity audited: on recorded mainnet and on every attack case, both reach the same result.
+  It is cheap on LEZ: an update is 11.4M cycles, proven privately at a flat fee; a public
+  attestation uses 3% of a transaction's budget (section 11).
 - **Updates are proven, not split.** An update carries the sync-committee BLS12-381 aggregate,
   the finality branch and the committee handoff. It runs on a private actor of the program,
   proven by whoever submits it, and lands as **one** transaction. LEZ meters a private
@@ -441,43 +441,32 @@ and submit it itself.
 
 ### 11. Reuse assessment (R.6)
 
-R.6 asks for mature, audited implementations of the light-client protocol and its primitives,
-and for what is reused, what is rewritten, and the audit-surface consequence. We evaluated the
-candidates by running them inside a LEZ program, on recorded mainnet, in RISC Zero's executor.
+**What runs in the program, and why it can be trusted:**
 
-| | `r0vm-helios` | Helios `consensus-core`, current | Our verifier |
-|---|---|---|---|
-| What it is | A RISC Zero guest wrapping Helios `consensus-core` 0.8.3, proving for a Solidity contract | The library (a16z/helios, MIT) | The specs' light-client protocol, about 300 lines, with BLS through `blst` |
-| Audited | **Yes, by zkSecurity**, at 0.8.3 | Its logic up to 0.8.3 is the audited one | No; in our audit (M5) |
-| Verifies today's mainnet (Fulu) | **No**: stops at Electra | Yes, through Gloas | Yes, through Gloas |
-| One update, in the program | — | **39.5M cycles**, ~34M of them in its `bls12_381` | **11.4M cycles** |
-| Init, a public transaction (10M cap) | — | 5.6M, after we took the committee hashing out of its generic SSZ path; 20.4M through its own bootstrap check | **1.4M** |
+| Layer | What | Assurance |
+|---|---|---|
+| BLS12-381 signatures | `blst`, through RISC Zero's accelerated fork | `blst` audited by NCC Group for the Ethereum Foundation (2021); formal verification by Galois in progress. The fork moves its field arithmetic onto the zkVM's accelerator; that change is in our audit |
+| Light-client protocol | the consensus specs' `validate_light_client_update` and `apply_light_client_update`, for finalized headers, about 300 lines (`lc/types/src/core.rs`) | held to Helios `consensus-core`, whose logic zkSecurity audited (in `r0vm-helios`), by a differential suite; in our audit |
+| Hashing, inclusion proofs | RISC Zero's accelerated SHA-256 and Keccak; `alloy-trie`, `alloy-rlp` | the Rust Ethereum stack's standard libraries |
+| Execution | inside LEZ's own execution proof, deployed immutable | LEZ verifies the proof against the program's image |
 
-measured, 9 Nov 2026, RISC Zero's executor at LEZ's metering, on the mainnet segment in
-`tests/data/mainnet-1904`.
+**The differential suite** (`tests/oracle.rs`, `tests/adversarial.rs`): every recorded mainnet
+update, from a checkpoint through two committee handoffs to a finality update, goes through our
+verifier and through Helios, and both must reach the same store. Every attack (a fabricated chain
+signed by a committee we generated, a committee never handed off, a forged next committee, 341 of
+512 signers, an unfinalized header, tampered roots, another chain's domain, a replay) must be
+refused by both. Our SSZ roots are checked equal to Helios's for every committee and header. A
+disagreement fails CI.
 
-**What we chose, and why.** The protocol logic is the same whoever implements it; the cost is the
-BLS library. Helios calls `bls12_381` directly, which inside the zkVM costs 3.5× `blst` with
-RISC Zero's accelerator, and there is no way to swap it. So:
+**Why not run Helios itself in the program.** Its protocol logic is the same as ours, but it
+verifies signatures with the `bls12_381` crate, which can't be swapped and costs far more in the
+zkVM: an update is **39.5M cycles** through Helios, about 34M of it in BLS, against **11.4M**
+here (measured). `r0vm-helios` stops at the Electra fork, so it can't verify today's mainnet, and
+it targets risc0 2.0 and an EVM verifier.
 
-- **Reused:** `blst` for BLS12-381 (with RISC Zero's accelerated fork), RISC Zero's accelerated
-  SHA-256 and Keccak, `alloy-trie` and `alloy-rlp` for Merkle-Patricia proofs and headers, and
-  **Helios `consensus-core` as the reference our verifier is tested against**.
-- **Written by us:** the protocol steps (period checks, finality and committee branches, the
-  signing domain, the 2/3 quorum, the store transitions), the compact store, the LEZ actor and its
-  trust boundary, records, claims and statements, history proofs, and the clients.
-- **How the rewrite is held to the audited logic:** a differential test. Every recorded mainnet
-  update, from a checkpoint through two committee handoffs to a finality update, goes through both
-  our verifier and Helios; both must accept it and reach the same store. Every adversarial case
-  (a fabricated chain signed by a committee we generated, a committee never handed off, a forged
-  next committee, 341 of 512 signers, an unfinalized header, tampered roots, another chain's
-  domain, a replay) must be refused by both. Our SSZ roots are checked equal to Helios's for
-  every committee and header.
-- **Audit-surface consequence.** The audit (M5) covers our verifier, about 300 lines of protocol
-  logic plus our use of `blst`, the LEZ actor, and the inclusion and statement code. That is a
-  small surface, and the differential suite gives the auditor a reference to check it against.
-- **`r0vm-helios`:** not usable as is (Electra only, risc0 2.0, an EVM verifier). Its patch set
-  for RISC Zero showed the way.
+**Audit-surface consequence.** The audit (M5) covers our verifier, the accelerated `blst` fork's
+use, the LEZ actor and its trust boundary, and the inclusion and statement code. The differential
+suite gives the auditor an audited reference to check the protocol logic against.
 
 ### 12. Dependency check against the live runtime
 
@@ -582,9 +571,9 @@ Every hard requirement maps to a design element and a test or artifact.
 - **D10: Two updates per period, plus on demand.** Liveness (the handoff), coverage (records less
   than 8,191 blocks apart), and cost. An event newer than the latest record waits up to 13.7 h,
   or for an on-demand update.
-- **D11: Our verifier on `blst`, held to Helios by a differential suite (R.6).** Helios in the
-  program costs 3.5× the cycles, all in its BLS library, which can't be swapped. Rejected:
-  Helios in the program (cost); `r0vm-helios` as is (Electra only, risc0 2.0, an EVM verifier).
+- **D11: The specs' light-client protocol on audited `blst`, held to Helios by a differential
+  suite (R.6).** Helios in the program verifies the same way but at 3.5× the cycles, all in a BLS
+  library it doesn't let us swap.
 
 ---
 

@@ -21,32 +21,20 @@ The proposal is [rfp-021/proposal.md](rfp-021/proposal.md).
   published, from a one-time alias). History proofs reach any block in the 8,191 before a
   record, so the instance needs only two updates per sync-committee period.
 
-## The verifier, and Helios as its reference
+## The verifier: audited cryptography, held to audited logic
 
 The program checks each update with **our verifier** (`lc/types/src/core.rs`): the consensus
-specs' light-client protocol, about 300 lines, with BLS12-381 through **`blst`** and RISC Zero's
-accelerator. We wrote the protocol steps (period checks, finality and committee branches, the
-signing domain, the 2/3 quorum, the store transitions); the cryptography is `blst`'s.
+specs' light-client protocol, about 300 lines, with the BLS12-381 signature checked by **`blst`**,
+the library audited by NCC Group for the Ethereum Foundation, through RISC Zero's accelerated fork.
 
-**Helios `consensus-core`** (a16z/helios, MIT) is its reference. RFP-021's R.6 asks proposals to
-reuse mature, audited light-client implementations, and Helios's consensus logic is the one
-zkSecurity audited inside `r0vm-helios`, on the zkVM LEZ uses. We evaluated it inside the program
-first, and measured:
+It is held to **Helios `consensus-core`** (a16z), whose consensus logic zkSecurity audited: in the
+tests every recorded mainnet update goes through both and both must reach the same store, and
+every attack case must be refused by both (`tests/oracle.rs`, `tests/adversarial.rs`). This is
+how RFP-021's R.6, reuse audited implementations, is met; the proposal's section 11 says why the
+program doesn't run Helios itself.
 
-| One update, in the program | Cycles |
-|---|---:|
-| Helios `consensus-core` | 39.5M, about 34M of it in its BLS library (`bls12_381`) |
-| Our verifier, on `blst` | **11.4M** |
-
-The protocol logic is the same either way; the difference is the BLS library, which Helios
-doesn't let us swap. So Helios checks our verifier instead, in the tests (`tests/oracle.rs`,
-`tests/adversarial.rs`): every recorded mainnet update, through two committee handoffs, goes
-through both, and both must reach the same store; every attack (a fabricated chain signed by a
-committee we generated, a committee never handed off, a forged next committee, too few signers,
-an unfinalized header, tampered roots, another chain's domain, a replay) must be refused by both.
-
-`r0vm-helios` itself isn't usable: it stops at the Electra fork, so it can't verify today's
-mainnet (Fulu), and it targets risc0 2.0 and a Solidity verifier.
+It is cheap on LEZ: an update is 11.4M cycles, proven privately at a flat fee; Init is 1.4M; a
+public storage attestation is 0.30M, 3% of a transaction's budget.
 
 ## Status
 

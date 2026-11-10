@@ -4,25 +4,25 @@ Every number here is **measured** (where, when) or **derived** (arithmetic shown
 and the conditions for a timed run are in [bench-plan.md](bench-plan.md). Logs are in
 [results/](results/).
 
-## The verifier against Helios (R.6)
+## Cycles per action
 
-One action of the program, run in RISC Zero's executor at LEZ's metering, on the recorded mainnet
-segment in `tests/data/mainnet-1904` (`tests/cost.rs`).
+Each message of the program, run in RISC Zero's executor at LEZ's metering, on the recorded
+mainnet segment in `tests/data/mainnet-1904` (`tests/cost.rs`). measured, 9 Nov 2026.
 
-| Action | Helios `consensus-core` in the program | Our verifier, on `blst` |
-|---|---:|---:|
-| An update (finality) | 39.5M cycles, ~34M of it in `bls12_381` | **11.4M** |
-| Init (public, 10M cap) | 20.4M through Helios's bootstrap check; 5.6M with the committee root hashed directly | **1.36M** |
-| A storage attestation (public, 2M default gas limit) | — | **0.30M** |
+| Action | Cycles | Budget |
+|---|---:|---|
+| Update, committee handoff (private) | 12.53M | proven; the fee is flat |
+| Update, finality (private) | 11.39M | proven; the fee is flat |
+| Init (public) | 1.36M | 10M per transaction |
+| Attestation, storage slot (public) | 0.30M | 2M default gas limit |
 
-measured, 9 Nov 2026. Helios's numbers are from a build of the program on Helios, kept in this
-branch's history. The protocol logic is the same in both; the difference is the BLS library.
+For reference, the same update through Helios `consensus-core` in the program is 39.5M cycles,
+about 34M of it in its BLS library (proposal section 11).
 
 **The verifier is held to Helios** by the differential tests (`tests/oracle.rs`,
-`tests/adversarial.rs`): on the recorded segment, from a checkpoint through two committee
-handoffs to a finality update, both accept every update and reach the same store at every step;
-every adversarial case is refused by both; the verifier's SSZ roots equal Helios's for every
-committee and header. 30 native tests, all passing.
+`tests/adversarial.rs`): on the recorded segment both accept every update and reach the same store
+at every step; every adversarial case is refused by both; the verifier's SSZ roots equal Helios's
+for every committee and header. 30 native tests, all passing.
 
 ## Node run: real proofs on a LEZ v0.4 devnet
 
@@ -80,11 +80,10 @@ attestations the target's header and history slot. Every search passed. What is 
 boundary message (`Advance` to the instance, or `CheckRecord` to the record account) and the fee
 reserve, each from a one-time alias, with the refund to the payer's alias.
 
-**A first run** of the same verifier ([first-run.log](results/node-2026-11-09/first-run.log),
-image `93205a5c…`) proved the updates in 2,267.5 s and 2,116.2 s, then a public attestation
-reverted: it needed 2.03M cycles against the 2M limit, 84% of them in Keccak running in software.
-Routing Keccak through RISC Zero's accelerated `tiny-keccak` brought it to 0.30M, and the run
-above is on that program.
+An earlier run of the same verifier ([first-run.log](results/node-2026-11-09/first-run.log))
+proved the two updates in 2,267.5 s and 2,116.2 s; its program hashed Keccak in software, which
+put a public attestation over the 2M gas limit, so the run above is on the program that routes
+Keccak through RISC Zero's accelerator.
 
 ## Derived
 
