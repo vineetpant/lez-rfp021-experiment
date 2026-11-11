@@ -119,6 +119,22 @@ public part grew by 4–9k cycles, because `Advance` now emits `HeaderFinalised`
 `CommitteeHandoff` events and the header carries its instance and chain: 0.6–1.3% on the
 charge. The derived costs below use these charges.
 
+### What these numbers cover
+
+Every attestation on the node, in both runs, was a **storage-slot
+claim** (the WETH slot): public and private, at the header's block and, on 9 Nov, at older
+blocks through history. Account and receipt-log claims run through the same messages (`Attest`,
+`AttestPrivate`, `CheckRecord`) and differ only in the proof checked inside; they are tested
+natively (`tests/statement.rs`, a receipt log on real mainnet receipts) and their cycles
+measured in the executor (above), but they have **not run on the node**. Not measured yet:
+
+| Not measured | Why it matters | How |
+|---|---|---|
+| Account and receipt-log claims on the node: their transactions' storage gas | the public fee; estimated as message + 398 B envelope | devnet, dev mode |
+| Private proving time and peak memory for account and receipt-log claims | P.4 for those claims; expected near the storage slot's 14–15 min, not assumed | real proofs |
+| Proving times on the 11 Nov program | the 9 Nov times are from the program before the data model changed; its cycles moved under 0.3% | real proofs |
+| Lowest workable RAM, GPU proving | P.4, P.6 | M0 (#10, #38) |
+
 ## Derived
 
 **Tracking cost (P.3).** Two updates per sync-committee period (27.3 h), 642 a year. Per update,

@@ -72,6 +72,11 @@ On a LEZ v0.4 devnet with real proofs (9 Nov 2026, M3 Pro laptop, base fees at t
 A private transaction's fee is flat: (409,764 + its public cycles) × 8 + 224,063 × 8. The
 proving work shows up as time on the prover's machine, not as fees.
 
+**Not measured yet.** Every attestation run on the node was a storage-slot claim. Account and
+receipt-log claims are tested natively and their cycles measured above, but they haven't run on
+the node, so their transaction size and their private proving time and memory are still to
+measure ([results.md](rfp-021/results.md#what-these-numbers-cover)).
+
 ## Tested against recorded mainnet
 
 Init and the light-client updates run against recorded mainnet data in
