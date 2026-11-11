@@ -135,3 +135,13 @@ fn handoff_cycles() {
         Err(e) => panic!("Update: {e}"),
     }
 }
+
+#[test]
+fn condition_cycles() {
+    use eth_lc_types::statement::{Claim, Condition, Fact, Op, Subject};
+    let weth = lez_hello_world::chain::storage_proof(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/data/mainnet-1904/getproof-26376237.json")).unwrap();
+    let condition = Condition { subject: Subject::StorageValue { offset: 0, width: 32 }, op: Op::NotEqual, rhs: [0; 32] };
+    let run = |n: usize| attest(Claim { chain_id: 1, facts: vec![Fact { proof: weth.clone(), conditions: vec![condition.clone(); n] }] });
+    let ((one, one_b), (five, five_b)) = (run(1), run(5));
+    println!("Each extra condition: {} cycles, {} B", (five - one) / 4, (five_b - one_b) / 4);
+}
