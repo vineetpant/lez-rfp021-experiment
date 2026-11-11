@@ -187,9 +187,9 @@ Our answer to the RFP's central feasibility question:
 
 ## 5. Attestation: two paths
 
-Cost per statement type: a storage slot plus its account, as a whole public attestation, 301k
-exec gas on the node (3% of 10M, P.1). On the prototype, bare: a receipt log 52–69k cycles, a
-storage slot plus its account 190k, each extra predicate about 1k.
+Cost per kind of fact, as a whole public attestation (P.1, measured): a storage slot plus its
+account 301k exec gas (3% of 10M), an account 180k, a receipt log 83k; each extra condition
+about 1.5k.
 
 ### 5a. Public
 

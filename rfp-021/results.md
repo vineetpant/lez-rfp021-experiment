@@ -17,6 +17,7 @@ mainnet segment in `tests/data/mainnet-1904` (`tests/cost.rs`). measured, 9 Nov 
 | Attestation, storage slot (public) | 301,471 | 7,122 B | 2M default gas limit |
 | Attestation, account balance (public) | 179,974 | 4,044 B | 2M default gas limit |
 | Attestation, receipt log (public) | 83,076 | 1,760 B | 2M default gas limit |
+| Each extra condition | 1,486 | 36 B | — |
 
 Measured 11 Nov 2026, on the program with the proposal's data model (section 4: `Claim`,
 `FinalisedHeader`, `InstanceConfig`); the 9 Nov node run below was on the program before it, and
@@ -91,24 +92,52 @@ proved the two updates in 2,267.5 s and 2,116.2 s; its program hashed Keccak in 
 put a public attestation over the 2M gas limit, so the run above is on the program that routes
 Keccak through RISC Zero's accelerator.
 
+## Node run on the proposal's data model (dev mode)
+
+The program with the proposal's section 4 types (`InstanceConfig`, `FinalisedHeader` keyed by
+block number, `Claim`, `Statement`, events), on a fresh devnet, against the recorded mainnet in
+`tests/data/mainnet-1904`, with proofs faked (`DEV_MODE=1`). Fees don't depend on whether a
+proof is real, so the charges are the real ones; proving times aren't measured in this mode.
+
+Log: [results/node-2026-11-11/run.log](results/node-2026-11-11/run.log), program image
+`27051546…`. measured, 11 Nov 2026.
+
+| Step | Exec gas or public cycles | Bytes | Charge |
+|---|---:|---:|---:|
+| Deploy | — | — | 5,517,984 |
+| Init (public) | 1,376,969 | 26,567 | 11,228,288 |
+| Update, committee handoff (private) | 37,031 public cycles | — | 5,366,864 |
+| Update, finality, writes a header account (private) | 63,824–65,931 public cycles | — | 5,581,208–5,598,064 |
+| Attestation, storage slot (public) | 301,519 | 7,520 | 2,472,312 |
+| Attestation, storage slot (private) | 21,968 public cycles | — | 5,246,360 |
+| Refused: tampered proof, false claim (public) | 2,000,000 (the limit) | 7,520 | 16,060,160 each |
+
+All four recorded updates applied, every privacy check passed, the honest attestations were
+accepted, and the broken ones were refused (public: reverted; private: unprovable, including an
+attestation against a header the instance doesn't hold). Against the 9 Nov program, an update's
+public part grew by 4–9k cycles, because `Advance` now emits `HeaderFinalised` and
+`CommitteeHandoff` events and the header carries its instance and chain: 0.6–1.3% on the
+charge. The derived costs below use these charges.
+
 ## Derived
 
-**Tracking cost (P.3).** Two updates per sync-committee period (27.3 h), 642 a year. Per update:
-466,762 exec gas (409,764 + 56,998), 224,063 storage gas, 5,526,600 at the floor.
+**Tracking cost (P.3).** Two updates per sync-committee period (27.3 h), 642 a year. Per update,
+on the 11 Nov program: 475,695 exec gas (409,764 + 65,931), 224,063 storage gas, 5,598,064 at
+the floor.
 
 | | Per update | Per period (2) | Per year (642) |
 |---|---:|---:|---:|
-| Exec gas | 466,762 | 933,524 | 3.00 × 10⁸ |
-| Charge at the floor | 5,526,600 | 11,053,200 | 3.55 × 10⁹ |
+| Exec gas | 475,695 | 951,390 | 3.05 × 10⁸ |
+| Charge at the floor | 5,598,064 | 11,196,128 | 3.59 × 10⁹ |
 | Share of the period's exec capacity (9,830 blocks × 10M) | — | 0.001% | — |
 
 Per attestation, at the daily average of 1.76 updates:
 
 | Attestations per day | Exec gas per attestation | Storage gas per attestation |
 |---:|---:|---:|
-| 10 | 82,048 | 39,386 |
-| 100 | 8,205 | 3,939 |
-| 1,000 | 820 | 394 |
+| 10 | 83,613 | 39,386 |
+| 100 | 8,361 | 3,939 |
+| 1,000 | 836 | 394 |
 
 **Latency (P.5).** An event in a block before the latest record (up to 8,191 blocks before it)
 needs no update: the consumer attests at once, in one block publicly or after 14–15 min of
@@ -116,8 +145,8 @@ proving privately. An event newer than the latest record waits for the next sche
 to 13.7 h) or an on-demand one: about 12.8 min of finality, up to 6.4 min for the update to
 appear, 35.6–36.7 min of proving on the reference laptop, one block: **about 48–56 min**.
 
-**Storage (P.7).** A record account holds 186 B of state; 642 a year is 119 KB, and 597 KB over 5
-years. The instance's own state is constant. No action reads more than one record (P.9).
+**Storage (P.7).** A finalised header's account holds 226 B of state; 642 a year is 145 KB, and
+725 KB over 5 years. The instance's own state is constant. No action reads more than one record (P.9).
 
 **Refusals (R.2).** A refused public attestation is charged its whole gas limit, 6.5× an
 accepted one at the record; the client's dry run stops an honest client before that.

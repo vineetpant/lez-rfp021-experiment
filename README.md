@@ -55,6 +55,7 @@ Each message run through the program in RISC Zero's executor, metered as LEZ met
 | Attestation, storage slot | public | 301,471 | 2M default gas limit |
 | Attestation, account balance | public | 179,974 | 2M default gas limit |
 | Attestation, receipt log | public | 83,076 | 2M default gas limit |
+| Each extra condition | public | 1,486 | 36 B more |
 
 On a LEZ v0.4 devnet with real proofs (9 Nov 2026, M3 Pro laptop, base fees at the floor of 8;
 [`rfp-021/results.md`](rfp-021/results.md)):

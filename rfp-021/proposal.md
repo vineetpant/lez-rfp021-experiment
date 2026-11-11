@@ -58,7 +58,7 @@ We build that primitive as one LEZ 0.4 program.
     **5,526,600** ([node run](results.md#node-run-real-proofs-on-a-lez-v04-devnet)).
   - Executing the same check publicly costs 11.4M cycles (finality only) to 12.5M (with
     handoff), measured. That's over the 10M cap of one transaction, so it splits in two. That's
-    about **25× more** exec gas than the proven path's 466,762 (derived).
+    about **25× more** exec gas than the proven path's 475,695 (derived).
   - It needs no multi-transaction job protocol and no precompile.
 - **The module checks the aggregate itself (F.1).** It does so inside LEZ's own execution
   proof, so no second proof system is added. This matches the RFP's own reasoning when it
@@ -111,13 +111,14 @@ Each **instance** is a public actor of the program. It holds:
 Its ID is `H(checkpoint ‖ config)`. That makes IDs impossible to squat, and lets several
 instances (mainnet, Sepolia, Hoodi) coexist under one program (F.14, F.15).
 
-**Header records** are immutable accounts, 186 bytes of state each:
+**Header records** are immutable accounts, 226 bytes of state each:
 
-- the instance, chain ID, slot, beacon root, block number, `state_root`, `receipts_root`, the
-  execution block hash, which history proofs start from (section 8), and the update's signer
-  count (section 10)
-- at an address derived from the program, the instance and the slot, so anyone can find a
-  record and no one holds a key to it
+- the instance, chain ID and genesis validators root, slot, beacon root, block number,
+  `state_root`, `receipts_root`, the execution block hash, which history proofs start from
+  (section 8), the update's signer count (section 10), and the period of the committee that
+  signed it
+- at an address derived from the program, the instance and the block number, so anyone can
+  find a record and no one holds a key to it
 - written once, only by the program, only after a verified update
 - never rewritten or removed, so an old statement stays valid forever (R.3), and every action
   reads at most one record (P.9)
@@ -175,13 +176,16 @@ the default segment size, 9 Nov 2026:
 
 | | Handoff update | Finality update |
 |---|---:|---:|
-| Private cycles (executor) | 12.53M | 11.39M |
+| Private cycles (executor, 11 Nov) | 12.55M | 11.37M |
 | Proving + submit | **2,199.6 s (36.7 min)** | **2,137.1 s (35.6 min)** |
 | Peak memory | 8.4 GB | 8.7 GB |
 | Public part (`Advance`, plus the record write when the update finalizes a new header) | 32,905 cycles | 56,998 cycles |
 | Net charge (reserve − refund) | **5,333,856** | **5,526,600** |
 
-A first run of the same verifier proved them in 37.8 and 35.3 min. Chrome and Brave were open
+A first run of the same verifier proved them in 37.8 and 35.3 min. On the program with this
+proposal's data model (11 Nov, dev mode, same fees), the public parts are 37,031 and 65,931
+cycles and the charges 5,366,864 and 5,598,064: `Advance` now also emits the header and
+handoff events. Chrome and Brave were open
 during both runs; the conditions are in [results.md](results.md).
 
 The private fee is (409,764 + public cycles) × 8 + 224,063 × 8, so it is nearly flat: the
@@ -235,11 +239,20 @@ instance resumes in one transaction (R.7). To be measured.
 
 The consumer program builds the predicate. The user or relayer supplies only the Ethereum proof.
 
-- **Public:** the consumer's message to the record account runs on the sequencer, with an MPT
-  check and predicates. A WETH storage slot plus its account, at the record: **301,115 exec
-  gas**, 3% of the 10M cap (measured on the node). On our earlier prototype, the bare check was
-  52–69k cycles for a receipt log and 190k for a storage slot, and each extra predicate about
-  1k; re-measured in M0.
+- **Public:** the consumer's message to the finalised header's account runs on the sequencer:
+  the Merkle-Patricia check and the conditions. Per kind of fact, as LEZ meters it (RISC Zero's
+  executor, `tests/cost.rs`, 11 Nov; the storage slot also on the node):
+
+  | Public attestation | Exec gas | Message |
+  |---|---:|---:|
+  | Storage slot with its account | **301,471** (3.0% of the 10M cap) | 7,122 B |
+  | Account | **179,974** | 4,044 B |
+  | Receipt log | **83,076** | 1,760 B |
+  | Each extra condition | **1,486** | 36 B |
+
+  A transaction's storage gas is its message plus a 398-byte envelope (measured on the node: a
+  storage-slot attestation is 7,520 B). A deposit, a receipt log, costs about a quarter of a
+  storage-slot attestation.
 - **Private:** `AttestPrivate` runs on a private actor of the program, inside the consumer's
   private transaction.
   - The query, the Ethereum proof and the predicates are evaluated inside the proof and never
@@ -278,8 +291,13 @@ The consumer program builds the predicate. The user or relayer supplies only the
   | Peak memory | — | 7.3–7.8 GB |
   | Charge, refused | **16,060,112** (the whole gas limit) | 0: nothing is submitted |
 
-  Measured 9 Nov 2026. An earlier design, with records in a bounded ring inside the instance,
-  cost about 46k more per public attestation (D8).
+  Measured 9 Nov 2026. Re-run on 11 Nov on the program with this proposal's data model (dev
+  mode, same fees): public 301,519 exec gas, 7,520 B, charge 2,472,312; private 21,968 public
+  cycles, charge 5,246,360. An earlier design, with records in a bounded ring inside the
+  instance, cost about 46k more per public attestation (D8).
+
+  Proving an account or receipt-log attestation privately is to measure; the fee doesn't
+  depend on the kind of fact, because the published part is the same `CheckRecord`.
 
   - Honest attestations were accepted on both paths. A tampered proof and a false claim were
     refused on both: reverted in their block on the public path, unprovable on the private
@@ -472,8 +490,8 @@ The daemon is a Logos module plus a Logos Core headless CLI.
   - one about 13.7 h later, so consecutive records stay well inside the 8,191-block history
     window and every block between them can be proven from the later one (section 8)
   - on demand, for an event newer than the latest record, paid by whoever needs it: about
-    0.47M exec gas
-  - Tracking costs about 11.05M a period at the base-fee floor, 3.55 × 10⁹ a year, 0.001% of
+    0.48M exec gas
+  - Tracking costs about 11.2M a period at the base-fee floor, 3.59 × 10⁹ a year, 0.001% of
     the period's exec capacity ([derived](results.md#derived)). There is no heartbeat.
 - **Re-check before submit (R.9):** a losing racer pays its whole reserve (section 4). The daemon
   re-reads the instance immediately before sending and keeps its reserve tight.
@@ -494,9 +512,9 @@ interested parties choosing to spend the gas.
 - **Needs:** a consensus endpoint and LEZ gas, plus a prover and a private account for the proven
   path (the public split path needs no prover). No standing on Ethereum, and no permission:
   anyone starts one (F.11).
-- **Costs:** per update about 0.47M exec gas and 224k storage gas, 5.3–5.5M at the base-fee
+- **Costs:** per update about 0.48M exec gas and 224k storage gas, 5.4–5.6M at the base-fee
   floor; 35.6–36.7 min and 8.4–8.7 GB of proving on the reference laptop (measured). At the
-  recommended cadence, about 11.05M a period.
+  recommended cadence, about 11.2M a period.
 - **Cadence:** two updates per period, as above, plus on demand.
 - **Alongside other operators:** only one update per store applies; a losing submitter's update
   reverts and it pays its reserve. The re-check and deferral (R.9, R.10) keep that rare.
@@ -519,7 +537,7 @@ gives operators a reason to keep doing so.
   - The payout grows with how stale the instance was, measured in Ethereum time, which the
     update itself proves. No LEZ clock read is needed.
 - **Why it grows with staleness.** An operator submits once the payout covers its cost (about
-  467k exec gas plus storage). Operators with different costs reach that point at different
+  476k exec gas plus storage). Operators with different costs reach that point at different
   moments, which spreads submissions over time instead of starting a race. Frequent tiny updates
   earn tiny payouts, so there's nothing to gain from spamming.
 - **Permissionless (F.11).** No registration and no allow-list. Whoever lands the `Advance`
@@ -848,13 +866,13 @@ Every hard requirement maps to a design element and a test or artifact.
 | R.9, R.10 | Re-check plus deferral | Multi-operator test |
 | R.11 | Immutable records, no shared writes | Same-block private attest test |
 | R.12 | CI | Green default branch (#30) |
-| P.1 | Attest under the per-transaction budget | Node: 301k–549k exec gas against a 10M cap |
+| P.1 | Attest under the per-transaction budget | 83k (receipt log), 180k (account), 301k (storage slot), 549k (1,000 blocks back) exec gas against a 10M cap; 1.5k per extra condition |
 | P.2 | Per action: cycles, gas, proof time, proof size, extending RFP-020's methodology | bench-plan.md; `tests/cost.rs` reproduces the cycles; proof size 223,551 B, constant ([code-paths.md](code-paths.md)) |
 | P.3 | Amortised tracking cost at the recommended cadence | Two updates per period: [results.md](results.md#derived) |
 | P.4 | Laptop and minimum-spec proving | Node: updates 35.6–36.7 min, 8.4–8.7 GB; private attestation 14.2–15.2 min, 7.3–7.8 GB; declared minimum 16 GB |
 | P.5 | Latency breakdown | [results.md](results.md#derived): no update wait for a block before the latest record; 48–56 min on demand on the reference laptop |
 | P.6 | Daemon and prover resources | Report |
-| P.7 | Storage growth over 1 and 5 years | [results.md](results.md#derived): 119 KB a year, 597 KB over 5 |
+| P.7 | Storage growth over 1 and 5 years | [results.md](results.md#derived): 145 KB a year, 725 KB over 5 |
 | P.8 | In-program vs precompile delta | Report |
 | P.9 | No cost scaling with stored state | Node: every action reads one record account by its derived address |
 | S.1, S.2 | Testnet 0.4; e2e on a standalone sequencer | Deployment, CI |

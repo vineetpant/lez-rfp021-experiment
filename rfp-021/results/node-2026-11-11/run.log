@@ -1,0 +1,253 @@
+
+[1;34m==>[0m Stopping indexer and sequencer
+  indexer not running
+  sequencer not running
+
+[1;34m==>[0m Stopping bedrock
+  bedrock not running
+
+Devnet stopped. State kept - run ./scripts/reset.sh to wipe it.
+
+[1;34m==>[0m Removing chain and wallet state
+  removed .devnet/state, .devnet/logs and the wallet store
+
+Clean. Next: ./scripts/up.sh
+
+[1;34m==>[0m Checking prerequisites
+  cargo    ok
+
+[1;34m==>[0m Checking the ports are free
+  18080 free (bedrock)
+  3040  free (sequencer)
+  8779  free (indexer)
+
+[1;34m==>[0m Installing bedrock
+  already installed in .devnet/bin
+
+[1;34m==>[0m Installing the LEZ service binaries
+  already installed in .devnet/bin
+
+[1;34m==>[0m Starting bedrock
+  pid 31170
+  answering on 18080
+
+[1;34m==>[0m Starting indexer
+  pid 31179
+
+[1;34m==>[0m Starting sequencer
+  set up ./.devnet/state/sequencer
+  pid 31182
+
+[1;34m==>[0m Waiting for the chain to accept the wallet
+  healthy after 20s
+
+Devnet up. Logs in ./.devnet/logs
+Next: ./scripts/lc.sh
+
+[1;34m==>[0m Building the light-client program and its client
+   Compiling eth-lc-types v0.1.0 (./lc/types)
+   Compiling lez-hello-world v0.1.0 (.)
+    Finished `release` profile [optimized] target(s) in 11.36s
+warning: the following packages contain code that will be rejected by a future version of Rust: block v0.1.6, proc-macro-error2 v2.0.1
+note: to see what the problems were, use the option `--future-incompat-report`, or run `cargo report future-incompatibilities --id 3`
+  ImageID: 270515461883689a6547e5d66eb9c25ca8e92c537c2a755a57ee826ead0eaa7d - ./lc/guest/target/riscv32im-risc0-zkvm-elf/docker/eth_lc.bin
+  lc/guest/target/riscv32im-risc0-zkvm-elf/docker/eth_lc.bin
+
+[1;34m==>[0m Accounts
+  Transaction is included in block 13
+  payer Public/CbgR6tj5kWx5oziiFptM7jMvrQeYY3Mzaao6ciuhSr2r
+  instance Public/7dejCLeHrAg5v5s1SF1TJeC7YfkbRBoihzgEeVvvRF9N
+  operator Private/EDz9k2PcgAgWc8WcZHEaW3h7QuQyJ24ccPXRUEUi2mCp
+  private fee payer Private/FHCQC3BAubqWxLEwZzqykpWVTda6kfw1bN2rmvamDinK
+
+[1;34m==>[0m Checking the recorded checkpoint and updates natively
+  bootstrap verifies: slot 15597568 block 26358029
+  next update verifies: slot 15597568 -> 15597568, handoff true
+  MEM step=check max_rss_bytes=75055104
+
+[1;34m==>[0m Deploying eth_lc (immutable)
+  Transaction hash is fb9626f1e5d30cefd68cd027e7c6035f5000a995580762af69de0c41ebf0c41b
+  Transaction hash is f9a42b3a8b4b6c1704e7548430b1ba5a7025285a6791c42979b54ebe3f6888ab
+  Transaction hash is 407f3f55a3599354d6dd9f5c6c016b3d22488230d5198168d56a18909d75fa39
+  Transaction hash is 2ea659740375b9ff139278000606733af00365b39609248a814806e59818d265
+  Transaction hash is 1378c664403b0da1e368c6bd1dfa76aa102a0e0cb82d55c5dbcc131f70334f33
+  Transaction hash is 0208b7cb04b5cd1c24e0cfa323436955b1aebb3801347bf505b9b4f262aca339
+  Transaction hash is dc30a64599d5f3dbe5f3d8524f889eaa74be36be0a2cce196e89329ce8cef115
+  Transaction hash is 824cc6c2e06b5c5a2d243bcb76494144237e582dc908ed92cb472977f9f605c6
+  FEE step=lc-deploy charged=5517984 blocks=14..30 base_fee_exec=8..8 base_fee_stor=8..8
+  deployed at header account 2SZKEZeVYowWLtXkU3UExtZWE2a7S2196NDx5LiSmf2i
+  MEM step=deploy max_rss_bytes=85868544
+
+[1;34m==>[0m Init: binding the config and the checkpoint (public, signed by the instance)
+  FEE step=lc-init tx=47378bbbe187cc4107f05e11b990f6b9073db1bfd487561daa1b4ae9653c40fa block=31 charged=11228288 bytes=26567 stor_gas=26567 exec_gas=1376969 exec_gas_remainder=0 gas_limit=10000000 tip=0 base_fee_exec=8 base_fee_stor=8 base_fees_steady=true
+  STATUS step=lc-init block=31 reverted=false
+  initialised at slot 15597568 block 26358029
+  MEM step=init max_rss_bytes=77004800
+  next update verifies: slot 15597568 -> 15597568, handoff true
+  MEM step=pending max_rss_bytes=76103680
+
+[1;34m==>[0m Update 1: committee handoff (private, proven locally)
+  update: slot 15597568 -> 15597568 (block 26358029), handoff true, signers 0
+  Latest block is 31
+  TIME step=lc-update prove_and_submit_s=1.1 included_s=15.1
+  Syncing to block 32. Blocks to sync: 1
+  Synced to block 32 in 15.466959ms
+  Latest block is 32
+  FEE step=lc-update-refund charged=-3354290 swept=0
+  STATUS step=lc-update block=32 reverted=false
+  PUBLISHED step=lc-update public-actor instance@eth_lc
+  PUBLISHED step=lc-update public-actor unlinked 8ga8NDaWPPnpAo2sWwj4Cjrhcb8hvNa7nrxJaAZh6jwq@native token
+  PUBLISHED step=lc-update private-to-public from=unlinked 6fLAs7rRu5w7RjAoxgcGWqdXCx3dyDxF3sSxmSrxMoCM@eth_lc to=instance@eth_lc carries=Advance
+  PUBLISHED step=lc-update private-to-public from=unlinked 7GW15ePcJn6XJB8dugqShQfACMsWFiTMghuXWjafKJmU@native token to=unlinked 8ga8NDaWPPnpAo2sWwj4Cjrhcb8hvNa7nrxJaAZh6jwq@native token carries=Credit(8721154)
+  PUBLISHED step=lc-update sealed-messages=0 recovery-bindings=1 private-actions=7 refund-to=payer-alias fee-fallback=true
+  PRIVACY step=lc-update searched=4 bytes=32055 pass
+  advanced in block 32 to slot 15597568 block 26358029
+  MEM step=update max_rss_bytes=90406912
+  FEE step=lc-update-charged reserve=8721154 refund=3354290 swept=0 charged=5366864 public_cycles=37031 base_fee_exec=8 base_fee_stor=8
+  next update verifies: slot 15597568 -> 15605824, handoff true
+  MEM step=pending max_rss_bytes=75939840
+
+[1;34m==>[0m Update 2: committee handoff (private, proven locally)
+  update: slot 15597568 -> 15605824 (block 26366249), handoff true, signers 511
+  Latest block is 32
+  TIME step=lc-update prove_and_submit_s=1.2 included_s=13.2
+  Syncing to block 33. Blocks to sync: 1
+  Synced to block 33 in 10.015334ms
+  Latest block is 33
+  FEE step=lc-update-refund charged=-3498790 swept=3354290
+  STATUS step=lc-update block=33 reverted=false
+  PUBLISHED step=lc-update public-actor instance@eth_lc
+  PUBLISHED step=lc-update public-actor unlinked 8ga8NDaWPPnpAo2sWwj4Cjrhcb8hvNa7nrxJaAZh6jwq@native token
+  PUBLISHED step=lc-update public-actor record@eth_lc
+  PUBLISHED step=lc-update private-to-public from=unlinked HXgBsu8Ps8LKXyTR4wh3xJEwabx4zEKQVwE5NwJot8xb@eth_lc to=instance@eth_lc carries=Advance
+  PUBLISHED step=lc-update private-to-public from=unlinked 6nSB5QrbA11fD4NVWVk1u4LuyRnY9sqsSUTaF6GXJKQU@native token to=unlinked 8ga8NDaWPPnpAo2sWwj4Cjrhcb8hvNa7nrxJaAZh6jwq@native token carries=Credit(9096854)
+  PUBLISHED step=lc-update sealed-messages=0 recovery-bindings=1 private-actions=7 refund-to=payer-alias fee-fallback=true
+  PRIVACY step=lc-update searched=4 bytes=32764 pass
+  advanced in block 33 to slot 15605824 block 26366249
+  MEM step=update max_rss_bytes=90030080
+  FEE step=lc-update-charged reserve=9096854 refund=3498790 swept=3354290 charged=5598064 public_cycles=65931 base_fee_exec=8 base_fee_stor=8
+  next update verifies: slot 15605824 -> 15615840, handoff false
+  MEM step=pending max_rss_bytes=75988992
+
+[1;34m==>[0m Update 3: finality (private, proven locally)
+  update: slot 15605824 -> 15615840 (block 26376237), handoff false, signers 510
+  Latest block is 33
+  TIME step=lc-update prove_and_submit_s=1.2 included_s=15.2
+  Syncing to block 34. Blocks to sync: 1
+  Synced to block 34 in 12.016208ms
+  Latest block is 34
+  FEE step=lc-update-refund charged=-3488255 swept=3498790
+  STATUS step=lc-update block=34 reverted=false
+  PUBLISHED step=lc-update public-actor instance@eth_lc
+  PUBLISHED step=lc-update public-actor unlinked 8ga8NDaWPPnpAo2sWwj4Cjrhcb8hvNa7nrxJaAZh6jwq@native token
+  PUBLISHED step=lc-update public-actor record@eth_lc
+  PUBLISHED step=lc-update private-to-public from=unlinked DnS9qZMyhzv3Ee5mVAJs9vksUUbXAUK9iHTpYnbQ7SMf@eth_lc to=instance@eth_lc carries=Advance
+  PUBLISHED step=lc-update private-to-public from=unlinked HoBVXSa6E6eCfp7hyZ8Kr2TtknYKKjz9ytLviLgtPMQw@native token to=unlinked 8ga8NDaWPPnpAo2sWwj4Cjrhcb8hvNa7nrxJaAZh6jwq@native token carries=Credit(9069463)
+  PUBLISHED step=lc-update sealed-messages=0 recovery-bindings=1 private-actions=7 refund-to=payer-alias fee-fallback=true
+  PRIVACY step=lc-update searched=4 bytes=32700 pass
+  advanced in block 34 to slot 15615840 block 26376237
+  MEM step=update max_rss_bytes=93126656
+  FEE step=lc-update-charged reserve=9069463 refund=3488255 swept=3498790 charged=5581208 public_cycles=63824 base_fee_exec=8 base_fee_stor=8
+  next update verifies: slot 15615840 -> 15615840, handoff true
+  MEM step=pending max_rss_bytes=75874304
+
+[1;34m==>[0m Update 4: committee handoff (private, proven locally)
+  update: slot 15615840 -> 15615840 (block 26376237), handoff true, signers 0
+  Latest block is 34
+  TIME step=lc-update prove_and_submit_s=1.1 included_s=13.4
+  Syncing to block 35. Blocks to sync: 1
+  Synced to block 35 in 9.105959ms
+  Latest block is 35
+  FEE step=lc-update-refund charged=-3354290 swept=3488255
+  STATUS step=lc-update block=35 reverted=false
+  PUBLISHED step=lc-update public-actor instance@eth_lc
+  PUBLISHED step=lc-update public-actor unlinked 8ga8NDaWPPnpAo2sWwj4Cjrhcb8hvNa7nrxJaAZh6jwq@native token
+  PUBLISHED step=lc-update private-to-public from=unlinked 3jGDATuGTeTLVU94WUPDHdcLYkRKAiUSE4bTRBrZeBQL@eth_lc to=instance@eth_lc carries=Advance
+  PUBLISHED step=lc-update private-to-public from=unlinked 9cir4sUVt4q4xHgP1hpwRm7PJJaCWR17J6aquhZm2oK6@native token to=unlinked 8ga8NDaWPPnpAo2sWwj4Cjrhcb8hvNa7nrxJaAZh6jwq@native token carries=Credit(8721154)
+  PUBLISHED step=lc-update sealed-messages=0 recovery-bindings=1 private-actions=7 refund-to=payer-alias fee-fallback=true
+  PRIVACY step=lc-update searched=4 bytes=32055 pass
+  advanced in block 35 to slot 15615840 block 26376237
+  MEM step=update max_rss_bytes=91127808
+  FEE step=lc-update-charged reserve=8721154 refund=3354290 swept=3488255 charged=5366864 public_cycles=37031 base_fee_exec=8 base_fee_stor=8
+  no update yet: nothing in the segment advances the instance past slot 15615840
+  MEM step=pending max_rss_bytes=75612160
+  finalized slot 15615840 block 26376237; period 1906; next committee known true; latest header at 9spp83qKPHVucXpJc3gqAPFJsgYVqqh6XacA7EhteU66 (written true), latest block 26376237
+  MEM step=show max_rss_bytes=74268672
+
+[1;34m==>[0m Public attestation
+  DRYRUN step=lc-attest-public case=honest verdict=holds
+  TIME step=lc-attest-public case=honest submit_s=0.0 included_s=16.0
+  FEE step=lc-attest-public tx=0e609221169d003d741fcaf6f0c423a15c5ba466e2c46464a45c6506409a1d5d block=36 charged=2472312 bytes=7520 stor_gas=7520 exec_gas=301519 exec_gas_remainder=0 gas_limit=2000000 tip=0 base_fee_exec=8 base_fee_stor=8 base_fees_steady=true
+  STATUS step=lc-attest-public block=36 reverted=false
+  ATTEST step=lc-attest-public case=honest outcome=accepted
+  MEM step=attest-public max_rss_bytes=75431936
+
+[1;34m==>[0m Private attestation (proven locally; only the record check is public)
+  attesting privately against block 26376237 (slot 15615840), case honest
+  Latest block is 36
+  TIME step=lc-attest-private case=honest prove_and_submit_s=0.3 included_s=14.3
+  Syncing to block 37. Blocks to sync: 1
+  Synced to block 37 in 12.133292ms
+  Latest block is 37
+  FEE step=lc-attest-private-refund charged=-3278975 swept=3354290
+  STATUS step=lc-attest-private block=37 reverted=false
+  ATTEST step=lc-attest-private case=honest outcome=accepted
+  PUBLISHED step=lc-attest-private public-actor unlinked 8ga8NDaWPPnpAo2sWwj4Cjrhcb8hvNa7nrxJaAZh6jwq@native token
+  PUBLISHED step=lc-attest-private public-actor record@eth_lc
+  PUBLISHED step=lc-attest-private private-to-public from=unlinked EE8eyRiGLAAexWqbSQH2NfU8yZ3dqzkbucHWwKZSKSVS@eth_lc to=record@eth_lc carries=CheckRecord
+  PUBLISHED step=lc-attest-private private-to-public from=unlinked C4CPexDdL5knmydFxyhYTZwKVyc66ZR13rAYLCAsY3BF@native token to=unlinked 8ga8NDaWPPnpAo2sWwj4Cjrhcb8hvNa7nrxJaAZh6jwq@native token carries=Credit(8525335)
+  PUBLISHED step=lc-attest-private sealed-messages=0 recovery-bindings=1 private-actions=7 refund-to=payer-alias fee-fallback=true
+  PRIVACY step=lc-attest-private searched=8 bytes=31781 pass
+  MEM step=attest-private max_rss_bytes=87736320
+  FEE step=lc-attest-private-charged reserve=8525335 refund=3278975 swept=3354290 charged=5246360 public_cycles=21968 base_fee_exec=8 base_fee_stor=8
+
+[1;34m==>[0m Negative attestations: each breaks one thing, and each must be refused
+  DRYRUN step=lc-attest-public case=tampered-proof verdict=InvalidInclusionProof
+  TIME step=lc-attest-public case=tampered-proof submit_s=0.0 included_s=14.0
+  FEE step=lc-attest-public-tampered-proof tx=27a1fb625587ad511c35af5ad7ffdbaa9acf5ef0614f8c4f8847f0c225b589a6 block=38 charged=16060160 bytes=7520 stor_gas=7520 exec_gas=2000000 exec_gas_remainder=0 gas_limit=2000000 tip=0 base_fee_exec=8 base_fee_stor=8 base_fees_steady=true
+  STATUS step=lc-attest-public block=38 reverted=true
+  ATTEST step=lc-attest-public case=tampered-proof outcome=reverted
+  MEM step=attest-public max_rss_bytes=75366400
+  attesting privately against block 26376237 (slot 15615840), case tampered-proof
+  Latest block is 38
+  
+  thread 'main' (1) panicked at src/bin/eth_lc.rs:54:67:
+  the claim holds: InvalidInclusionProof
+  note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+  ATTEST step=lc-attest-private case=tampered-proof outcome=unprovable after_s=0.0 error=TransactionBuildError(ProgramExecutionFailed("Guest panicked: the claim holds: InvalidInclusionProof"))
+  MEM step=attest-private max_rss_bytes=84262912
+  DRYRUN step=lc-attest-public case=false-claim verdict=ConditionUnsatisfied
+  TIME step=lc-attest-public case=false-claim submit_s=0.0 included_s=14.0
+  FEE step=lc-attest-public-false-claim tx=2d7993836d815eb82c88b0d72a940735c916e4d249e35a6b9b8e5fc4d898e17d block=39 charged=16060160 bytes=7520 stor_gas=7520 exec_gas=2000000 exec_gas_remainder=0 gas_limit=2000000 tip=0 base_fee_exec=8 base_fee_stor=8 base_fees_steady=true
+  STATUS step=lc-attest-public block=39 reverted=true
+  ATTEST step=lc-attest-public case=false-claim outcome=reverted
+  MEM step=attest-public max_rss_bytes=75104256
+  attesting privately against block 26376237 (slot 15615840), case false-claim
+  Latest block is 39
+  
+  thread 'main' (1) panicked at src/bin/eth_lc.rs:54:67:
+  the claim holds: ConditionUnsatisfied
+  note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+  ATTEST step=lc-attest-private case=false-claim outcome=unprovable after_s=0.0 error=TransactionBuildError(ProgramExecutionFailed("Guest panicked: the claim holds: ConditionUnsatisfied"))
+  MEM step=attest-private max_rss_bytes=82411520
+  attesting privately against block 26376237 (slot 15615841), case unheld-record
+  Latest block is 39
+  
+  thread 'main' (1) panicked at src/bin/eth_lc.rs:145:13:
+  header not held by this instance
+  note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+  ATTEST step=lc-attest-private case=unheld-record outcome=unprovable after_s=0.1 error=TransactionBuildError(ProgramExecutionFailed("Guest panicked: header not held by this instance"))
+  MEM step=attest-private max_rss_bytes=83640320
+
+[1;32mPASS[0m  eth_lc followed recorded mainnet on LEZ through the committee handoffs and attested a storage slot publicly and privately; every broken attestation was refused.
+Fees and times: ./.devnet/logs/fees.log
+exit=0
+
+[1;34m==>[0m Stopping indexer and sequencer
+  indexer stopped
+  sequencer stopped
+
+[1;34m==>[0m Stopping bedrock
+  bedrock stopped
+
+Devnet stopped. State kept - run ./scripts/reset.sh to wipe it.

@@ -145,3 +145,12 @@ fn condition_cycles() {
     let ((one, one_b), (five, five_b)) = (run(1), run(5));
     println!("Each extra condition: {} cycles, {} B", (five - one) / 4, (five_b - one_b) / 4);
 }
+
+#[test]
+fn finalised_header_size() {
+    let chain = mainnet();
+    let (mut steps, _) = support::steps(&chain);
+    let u = oracle::update(&steps.pop().unwrap().update);
+    let header = eth_lc_types::finalised_header(&AccountId::new([7; 32]), &chain.config, &u.finalized_header, None, 512, 1906).unwrap();
+    println!("FinalisedHeader: {} B", borsh::to_vec(&header).unwrap().len());
+}
