@@ -58,7 +58,7 @@ We build that primitive as one LEZ 0.4 program.
     **5,526,600** ([node run](results.md#node-run-real-proofs-on-a-lez-v04-devnet)).
   - Executing the same check publicly costs 11.4M cycles (finality only) to 12.5M (with
     handoff), measured. That's over the 10M cap of one transaction, so it splits in two. That's
-    about **25× more** exec gas than the proven path's 475,695 (derived).
+    about **25× more** exec gas than the proven path's 475,686 (derived).
   - It needs no multi-transaction job protocol and no precompile.
 - **The module checks the aggregate itself (F.1).** It does so inside LEZ's own execution
   proof, so no second proof system is added. This matches the RFP's own reasoning when it
@@ -183,8 +183,8 @@ the default segment size, 9 Nov 2026:
 | Net charge (reserve − refund) | **5,333,856** | **5,526,600** |
 
 A first run of the same verifier proved them in 37.8 and 35.3 min. On the program with this
-proposal's data model (11 Nov, dev mode, same fees), the public parts are 37,031 and 65,931
-cycles and the charges 5,366,864 and 5,598,064: `Advance` now also emits the header and
+proposal's data model (11 Nov, dev mode, same fees), the public parts are 37,026 and 65,922
+cycles and the charges 5,366,824 and 5,597,992: `Advance` now also emits the header and
 handoff events. Chrome and Brave were open
 during both runs; the conditions are in [results.md](results.md).
 
@@ -292,8 +292,8 @@ The consumer program builds the predicate. The user or relayer supplies only the
   | Charge, refused | **16,060,112** (the whole gas limit) | 0: nothing is submitted |
 
   Measured 9 Nov 2026. Re-run on 11 Nov on the program with this proposal's data model (dev
-  mode, same fees): public 301,519 exec gas, 7,520 B, charge 2,472,312; private 21,968 public
-  cycles, charge 5,246,360. An earlier design, with records in a bounded ring inside the
+  mode, same fees): public 301,509 exec gas, 7,520 B, charge 2,472,232; private 22,650 public
+  cycles (432,414 exec gas), charge 5,251,816. An earlier design, with records in a bounded ring inside the
   instance, cost about 46k more per public attestation (D8).
 
   Proving an account or receipt-log attestation privately is to measure; the fee doesn't

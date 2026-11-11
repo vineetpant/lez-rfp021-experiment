@@ -137,12 +137,13 @@ fn handle(input: &ReceiveInput) -> Response {
             assert_eq!(header.instance, instance.account_id, "a header of another instance");
             attest(&instance.account_id, &header, &claim, ancestry);
             let to = header_actor(input, &header);
-            Response::keep_state().send_sync(to, &LcMsg::CheckRecord { header })
+            Response::keep_state().send_sync(to, &LcMsg::CheckRecord { instance: instance.account_id, header })
         }
 
-        LcMsg::CheckRecord { header } => {
+        LcMsg::CheckRecord { instance, header } => {
             assert!(input.from_own_program(), "CheckRecord must come from this program");
-            assert!(held_header(input) == header, "header not held by this instance");
+            let held = held_header(input);
+            assert!(held.instance == instance && held == header, "header not held by this instance");
             Response::keep_state()
         }
 

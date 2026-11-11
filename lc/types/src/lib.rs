@@ -272,9 +272,9 @@ pub enum LcMsg {
         claim: Claim,
         ancestry: Option<Ancestry>,
     },
-    /// Public, to a finalised header's account, only from this program: refuse unless it holds
-    /// `header`.
-    CheckRecord { header: FinalisedHeader },
+    /// Public, to a finalised header's account, only from this program: refuse unless it is
+    /// `instance`'s and holds `header`.
+    CheckRecord { instance: AccountId, header: FinalisedHeader },
     /// From a finalised header's account to the actor that sent `Attest { reply: true, .. }`.
     Attested { statement: Statement },
 }

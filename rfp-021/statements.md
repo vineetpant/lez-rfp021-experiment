@@ -128,7 +128,7 @@ The consumer receives it in the same transaction, on both paths (F.7):
 - **Public:** `Attest { instance, claim, ancestry, reply: true }` to the finalised header's account;
   `eth_lc` replies `Attested { statement }` to the caller and emits it as an event.
 - **Private:** the consumer's private actor calls `eth_lc`'s private actor, which checks the claim
-  inside the proof, confirms the header with one `CheckRecord { header }` to the
+  inside the proof, confirms the header with one `CheckRecord { instance, header }` to the
   header's account, and returns the statement to the consumer inside the proof. Only
   `CheckRecord` is published by `eth_lc`.
 
@@ -281,7 +281,7 @@ transactions could each consume the same deposit. So the nullifier crosses the b
 ```
 user's private account (proven on their machine):
   consumer program
-    └─ eth_lc private actor: checks it         ── CheckRecord { header }            ─▶ header account
+    └─ eth_lc private actor: checks it         ── CheckRecord { instance, header } ─▶ header account
     ◀─ statement
     └─ Spend { id }  ──────────────────────────────────────────────────────────────▶ nullifier account (write-once)
     └─ mint to a private account

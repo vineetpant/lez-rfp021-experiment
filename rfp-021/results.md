@@ -100,16 +100,16 @@ block number, `Claim`, `Statement`, events), on a fresh devnet, against the reco
 proof is real, so the charges are the real ones; proving times aren't measured in this mode.
 
 Log: [results/node-2026-11-11/run.log](results/node-2026-11-11/run.log), program image
-`27051546…`. measured, 11 Nov 2026.
+`53dd4dfe…`. measured, 11 Nov 2026.
 
 | Step | Exec gas or public cycles | Bytes | Charge |
 |---|---:|---:|---:|
-| Deploy | — | — | 5,517,984 |
-| Init (public) | 1,376,969 | 26,567 | 11,228,288 |
-| Update, committee handoff (private) | 37,031 public cycles | — | 5,366,864 |
-| Update, finality, writes a header account (private) | 63,824–65,931 public cycles | — | 5,581,208–5,598,064 |
-| Attestation, storage slot (public) | 301,519 | 7,520 | 2,472,312 |
-| Attestation, storage slot (private) | 21,968 public cycles | — | 5,246,360 |
+| Deploy | — | — | 5,526,336 |
+| Init (public) | 1,376,961 | 26,567 | 11,228,224 |
+| Update, committee handoff (private) | 37,026 public cycles | — | 5,366,824 |
+| Update, finality, writes a header account (private) | 63,817–65,922 public cycles | — | 5,581,152–5,597,992 |
+| Attestation, storage slot (public) | 301,509 | 7,520 | 2,472,232 |
+| Attestation, storage slot (private) | 22,650 public cycles (432,414 exec gas) | — | 5,251,816 |
 | Refused: tampered proof, false claim (public) | 2,000,000 (the limit) | 7,520 | 16,060,160 each |
 
 All four recorded updates applied, every privacy check passed, the honest attestations were
@@ -131,27 +131,27 @@ measured in the executor (above), but they have **not run on the node**. Not mea
 | Not measured | Why it matters | How |
 |---|---|---|
 | Account and receipt-log claims on the node: their transactions' storage gas | the public fee; estimated as message + 398 B envelope | devnet, dev mode |
-| Private proving time and peak memory for account and receipt-log claims | P.4 for those claims; expected near the storage slot's 14–15 min, not assumed | real proofs |
+| Private proving time and peak memory for account and receipt-log claims (their exec gas is already known: the published `CheckRecord` is the same for every kind of proof, 432,414) | P.4 for those claims; expected near the storage slot's 14–15 min, not assumed | real proofs |
 | Proving times on the 11 Nov program | the 9 Nov times are from the program before the data model changed; its cycles moved under 0.3% | real proofs |
 | Lowest workable RAM, GPU proving | P.4, P.6 | M0 (#10, #38) |
 
 ## Derived
 
 **Tracking cost (P.3).** Two updates per sync-committee period (27.3 h), 642 a year. Per update,
-on the 11 Nov program: 475,695 exec gas (409,764 + 65,931), 224,063 storage gas, 5,598,064 at
+on the 11 Nov program: 475,686 exec gas (409,764 + 65,922), 224,063 storage gas, 5,597,992 at
 the floor.
 
 | | Per update | Per period (2) | Per year (642) |
 |---|---:|---:|---:|
-| Exec gas | 475,695 | 951,390 | 3.05 × 10⁸ |
-| Charge at the floor | 5,598,064 | 11,196,128 | 3.59 × 10⁹ |
+| Exec gas | 475,686 | 951,372 | 3.05 × 10⁸ |
+| Charge at the floor | 5,597,992 | 11,195,984 | 3.59 × 10⁹ |
 | Share of the period's exec capacity (9,830 blocks × 10M) | — | 0.001% | — |
 
 Per attestation, at the daily average of 1.76 updates:
 
 | Attestations per day | Exec gas per attestation | Storage gas per attestation |
 |---:|---:|---:|
-| 10 | 83,613 | 39,386 |
+| 10 | 83,611 | 39,386 |
 | 100 | 8,361 | 3,939 |
 | 1,000 | 836 | 394 |
 
