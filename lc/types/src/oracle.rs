@@ -4,7 +4,7 @@
 //! here runs in the program.
 
 use crate::core::{self, Execution};
-use crate::{ChainConfig, Root};
+use crate::{InstanceConfig, Root};
 use helios_consensus_core::consensus_spec::MainnetConsensusSpec as Spec;
 use helios_consensus_core::types::{
     BeaconBlockHeader, Bootstrap, FinalityUpdate, Fork, Forks, LightClientHeader, LightClientStore, SyncCommittee, Update,
@@ -107,8 +107,8 @@ pub fn update(u: &AnyUpdate) -> core::LightClientUpdate {
 }
 
 /// Helios's `Forks` for `cfg`, whose forks are in that order.
-pub fn forks(cfg: &ChainConfig) -> Forks {
-    let fork = |i: usize| match cfg.forks.get(i) {
+pub fn forks(cfg: &InstanceConfig) -> Forks {
+    let fork = |i: usize| match cfg.finality.forks.get(i) {
         Some((epoch, v)) => Fork { epoch: *epoch, fork_version: (*v).into() },
         None => Fork { epoch: u64::MAX, ..Default::default() },
     };
@@ -122,7 +122,7 @@ pub fn forks(cfg: &ChainConfig) -> Forks {
         fulu: fork(6),
         gloas: fork(7),
     };
-    if cfg.gloas_epoch == u64::MAX {
+    if cfg.gloas_epoch() == u64::MAX {
         f.gloas = Fork { epoch: u64::MAX, ..Default::default() };
     }
     f
@@ -142,9 +142,9 @@ pub fn helios_store(finalized: &LightClientHeader, current: &Committee, next: Op
 /// Helios's verdict on `u` on top of `store`: the store after it, or the error. Helios applies an
 /// update below 2/3 participation as a no-op; that is reported here as its own error, so the
 /// oracle and the core can be compared.
-pub fn helios_update(cfg: &ChainConfig, store: &LightClientStore<Spec>, u: &AnyUpdate) -> Result<LightClientStore<Spec>, String> {
+pub fn helios_update(cfg: &InstanceConfig, store: &LightClientStore<Spec>, u: &AnyUpdate) -> Result<LightClientStore<Spec>, String> {
     let forks = forks(cfg);
-    let genesis = cfg.genesis_validators_root.into();
+    let genesis = cfg.chain.genesis_validators_root.into();
     match u {
         AnyUpdate::Update(u) => verify_update(u, *u.signature_slot(), store, genesis, &forks),
         AnyUpdate::Finality(u) => verify_finality_update(u, *u.signature_slot(), store, genesis, &forks),

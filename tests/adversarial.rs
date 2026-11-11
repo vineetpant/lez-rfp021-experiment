@@ -108,7 +108,7 @@ impl Forger {
         let fork_version = [6u8, 0, 0, 0];
         let mut fork_data = Sha256::new();
         fork_data.update([fork_version, [0; 4], [0; 4], [0; 4], [0; 4], [0; 4], [0; 4], [0; 4]].concat());
-        fork_data.update(chain.cfg.genesis_validators_root);
+        fork_data.update(chain.config.chain.genesis_validators_root);
         let fork_data_root: [u8; 32] = fork_data.finalize().into();
         let mut domain = [0u8; 32];
         domain[0] = 7;
@@ -190,7 +190,7 @@ fn vs1_fabricated_checkpoint_is_rejected() {
     let mut b = oracle::bootstrap(&chain.bootstrap);
     b.header.beacon.state_root = [0xf0; 32];
     let committee = oracle::committee(chain.bootstrap.current_sync_committee());
-    assert_eq!(core::bootstrap(&chain.cfg, &chain.checkpoint, &b, &committee).map(|_| ()), Err(Refusal::CheckpointRootMismatch));
+    assert_eq!(core::bootstrap(&chain.config, &b, &committee).map(|_| ()), Err(Refusal::CheckpointRootMismatch));
 }
 
 // ---- Verification Security #2 ----
@@ -253,7 +253,7 @@ fn vs2_update_under_another_chain_is_rejected() {
     // domain, so it doesn't verify under another genesis validators root.
     let step = last_step();
     let mut chain = mainnet();
-    chain.cfg.genesis_validators_root = [0xd8; 32];
+    chain.config.chain.genesis_validators_root = [0xd8; 32];
     assert_eq!(step.apply_other(&chain, &step.update).map(|_| ()), Err(Refusal::InvalidSignature));
     assert!(step.helios(&chain, &step.update).is_err(), "Helios refuses it too");
 }
@@ -285,4 +285,23 @@ fn committee_roots_equal_helios() {
     for c in &all {
         assert_eq!(core::committee_root(&oracle::committee(c)).unwrap(), c.tree_hash_root().0);
     }
+}
+
+#[test]
+fn min_participants_is_enforced() {
+    let mut chain = mainnet();
+    let b = oracle::bootstrap(&chain.bootstrap);
+    let committee = oracle::committee(chain.bootstrap.current_sync_committee());
+    // An instance may not ask for fewer than the specs' supermajority.
+    chain.config.finality.min_participants = 341;
+    assert_eq!(core::bootstrap(&chain.config, &b, &committee).map(|_| ()), Err(Refusal::MalformedInput));
+    // It may ask for more: the finality update had 510 signers, so an instance requiring all
+    // 512 refuses it, and one requiring 510 accepts it.
+    let step = last_step();
+    let signers = core::signers(&oracle::update(&step.update).sync_committee_bits);
+    assert_eq!(signers, 510);
+    chain.config.finality.min_participants = 512;
+    assert_eq!(step.apply(&chain).map(|_| ()), Err(Refusal::InsufficientSigners));
+    chain.config.finality.min_participants = 510;
+    assert!(step.apply(&chain).is_ok());
 }

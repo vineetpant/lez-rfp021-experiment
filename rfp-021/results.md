@@ -11,15 +11,16 @@ mainnet segment in `tests/data/mainnet-1904` (`tests/cost.rs`). measured, 9 Nov 
 
 | Action | Cycles | Message | Budget |
 |---|---:|---:|---|
-| Update, committee handoff (private) | 12.53M | — | proven; the fee is flat |
-| Update, finality (private) | 11.39M | — | proven; the fee is flat |
-| Init (public) | 1.36M | — | 10M per transaction |
-| Attestation, storage slot (public) | 301,587 | 7,121 B | 2M default gas limit |
-| Attestation, account balance (public) | 179,815 | 4,045 B | 2M default gas limit |
-| Attestation, receipt log (public) | 83,003 | 1,761 B | 2M default gas limit |
+| Update, committee handoff (private) | 12,554,439 | — | proven; the fee is flat |
+| Update, finality (private) | 11,369,739 | — | proven; the fee is flat |
+| Init (public) | 1,359,479 | — | 10M per transaction |
+| Attestation, storage slot (public) | 301,471 | 7,122 B | 2M default gas limit |
+| Attestation, account balance (public) | 179,974 | 4,044 B | 2M default gas limit |
+| Attestation, receipt log (public) | 83,076 | 1,760 B | 2M default gas limit |
 
-The attestation rows are from the typed-predicate program (10 Nov 2026); the update and Init
-rows didn't change with it.
+Measured 11 Nov 2026, on the program with the proposal's data model (section 4: `Claim`,
+`FinalisedHeader`, `InstanceConfig`); the 9 Nov node run below was on the program before it, and
+every action's cycles moved by under 0.3%.
 
 For reference, the same update through Helios `consensus-core` in the program is 39.5M cycles,
 about 34M of it in its BLS library (proposal section 11).

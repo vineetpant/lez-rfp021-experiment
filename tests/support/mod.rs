@@ -32,12 +32,12 @@ impl Step {
 
     /// The core's verdict on `update` in place of this step's.
     pub fn apply_other(&self, chain: &Chain, update: &AnyUpdate) -> Result<(core::LightClientStore, bool), Refusal> {
-        core::update(&chain.cfg, &self.store, &oracle::update(update), &self.current, self.next.as_deref())
+        core::update(&chain.config, &self.store, &oracle::update(update), &self.current, self.next.as_deref())
     }
 
     /// Helios's verdict on `update` on this step's store.
     pub fn helios(&self, chain: &Chain, update: &AnyUpdate) -> Result<LightClientStore<Spec>, String> {
-        oracle::helios_update(&chain.cfg, &self.helios, update)
+        oracle::helios_update(&chain.config, &self.helios, update)
     }
 }
 
@@ -45,7 +45,7 @@ impl Step {
 pub fn boot(chain: &Chain) -> (core::LightClientStore, LightClientStore<Spec>) {
     let b = oracle::bootstrap(&chain.bootstrap);
     let committee = chain.bootstrap.current_sync_committee();
-    let store = core::bootstrap(&chain.cfg, &chain.checkpoint, &b, &oracle::committee(committee)).expect("bootstrap");
+    let store = core::bootstrap(&chain.config, &b, &oracle::committee(committee)).expect("bootstrap");
     (store, oracle::helios_store(&chain.bootstrap.header(), committee, None))
 }
 
@@ -77,7 +77,7 @@ pub fn steps(chain: &Chain) -> (Vec<Step>, core::LightClientStore) {
 
 use alloy_rlp::{BufMut, Encodable, Header};
 use alloy_trie::{HashBuilder, Nibbles, proof::ProofRetainer};
-use eth_lc_types::mpt::ReceiptProof;
+use eth_lc_types::statement::Proof;
 use lez_hello_world::chain::hex_decode;
 use serde_json::Value;
 
@@ -123,7 +123,7 @@ pub fn encode_receipt(r: &Value) -> Vec<u8> {
 
 /// A proof of transaction `tx`'s receipt, built from the block's receipts: the trie root it
 /// rebuilds, and the proof.
-pub fn receipt_proof(tx: u64) -> ([u8; 32], ReceiptProof) {
+pub fn receipt_proof(tx: u64) -> ([u8; 32], Proof) {
     let j: Value = serde_json::from_slice(&std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/data/mainnet-1904/receipts-26376237.json")).unwrap()).unwrap();
     let receipts = j["result"].as_array().unwrap();
     let mut leaves: Vec<(Nibbles, Vec<u8>)> = receipts.iter().enumerate().map(|(i, r)| (Nibbles::unpack(rlp(&(i as u64))), encode_receipt(r))).collect();
@@ -135,5 +135,5 @@ pub fn receipt_proof(tx: u64) -> ([u8; 32], ReceiptProof) {
     }
     let root = hb.root();
     let proof = hb.take_proof_nodes().matching_nodes_sorted(&target).into_iter().map(|(_, n)| n.to_vec()).collect();
-    (root.0, ReceiptProof { tx_index: tx, receipt: encode_receipt(&receipts[tx as usize]), proof, log_index: 0 })
+    (root.0, Proof::Log { tx_index: tx, receipt: encode_receipt(&receipts[tx as usize]), proof, log_index: 0 })
 }

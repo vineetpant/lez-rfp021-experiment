@@ -6,20 +6,21 @@
 use std::path::Path;
 
 use anyhow::{Context, anyhow};
-use eth_lc_types::mpt::{Account, StorageProof};
 use eth_lc_types::core;
 use eth_lc_types::oracle::{self, AnyUpdate, Committee};
-use eth_lc_types::{ChainConfig, Root};
+use eth_lc_types::mpt::EthAccount;
+use eth_lc_types::statement::Proof;
+use eth_lc_types::{ChainBinding, FinalityParams, InstanceConfig, Root, SUPERMAJORITY};
 use helios_consensus_core::consensus_spec::MainnetConsensusSpec as Spec;
 use helios_consensus_core::types::{Bootstrap, FinalityUpdate, Update};
 use serde_json::Value;
 
 /// Two weeks: inside Ethereum's weak-subjectivity period at today's validator count.
-pub const MAX_STORE_AGE: u64 = 14 * 24 * 3600;
+pub const WEAK_SUBJECTIVITY_PERIOD: u64 = 14 * 24 * 3600;
 
 pub struct Chain {
-    pub cfg: ChainConfig,
-    pub checkpoint: Root,
+    /// The config an instance following this segment binds, from its checkpoint.
+    pub config: InstanceConfig,
     pub bootstrap: Bootstrap<Spec>,
     /// Every update in the segment: the periods' best updates in order, then the finality update.
     pub updates: Vec<AnyUpdate>,
@@ -66,17 +67,14 @@ pub fn load_chain(dir: impl AsRef<Path>, chain_id: u64) -> anyhow::Result<Chain>
     let dir = dir.as_ref();
     let genesis = read(&dir.join("genesis.json"))?;
     let forks = forks(&read(&dir.join("fork_schedule.json"))?)?;
-    // In fork order: genesis, Altair, Bellatrix, Capella, Deneb, Electra, Fulu, then Gloas once
-    // scheduled.
-    let epoch_of = |i: usize| forks.get(i).map_or(u64::MAX, |(e, _)| *e);
-    let cfg = ChainConfig {
-        chain_id,
-        genesis_validators_root: root(genesis["data"]["genesis_validators_root"].as_str().unwrap_or_default())?,
+    let chain = ChainBinding { chain_id, genesis_validators_root: root(genesis["data"]["genesis_validators_root"].as_str().unwrap_or_default())? };
+    let finality = FinalityParams {
         genesis_time: genesis["data"]["genesis_time"].as_str().unwrap_or("0").parse()?,
-        electra_epoch: epoch_of(5),
-        gloas_epoch: epoch_of(7),
+        // In fork order: genesis, Altair, Bellatrix, Capella, Deneb, Electra, Fulu, then Gloas
+        // once scheduled.
         forks,
-        max_store_age: MAX_STORE_AGE,
+        min_participants: SUPERMAJORITY,
+        weak_subjectivity_period: WEAK_SUBJECTIVITY_PERIOD,
     };
 
     let mut names: Vec<_> = std::fs::read_dir(dir)?.filter_map(|e| e.ok()?.file_name().into_string().ok()).collect();
@@ -84,6 +82,7 @@ pub fn load_chain(dir: impl AsRef<Path>, chain_id: u64) -> anyhow::Result<Chain>
     let boot = names.iter().find(|n| n.starts_with("bootstrap-") && n.ends_with(".json")).ok_or_else(|| anyhow!("no bootstrap in {}", dir.display()))?;
     let bootstrap: Bootstrap<Spec> = serde_json::from_value(read(&dir.join(boot))?["data"].clone()).context("decode the bootstrap")?;
     let checkpoint = root(&std::fs::read_to_string(dir.join(boot.replace(".json", ".root")))?)?;
+    let config = InstanceConfig { checkpoint, chain, finality };
 
     let mut committees = vec![bootstrap.current_sync_committee().clone()];
     let mut updates = vec![];
@@ -100,7 +99,7 @@ pub fn load_chain(dir: impl AsRef<Path>, chain_id: u64) -> anyhow::Result<Chain>
         let f: FinalityUpdate<Spec> = serde_json::from_value(read(&dir.join("finality_update.json"))?["data"].clone()).context("decode the finality update")?;
         updates.push(AnyUpdate::Finality(f));
     }
-    Ok(Chain { cfg, checkpoint, bootstrap, updates, committees })
+    Ok(Chain { config, bootstrap, updates, committees })
 }
 
 pub fn hex32(v: &serde_json::Value) -> anyhow::Result<[u8; 32]> {
@@ -111,9 +110,9 @@ pub fn hex32(v: &serde_json::Value) -> anyhow::Result<[u8; 32]> {
     Ok(w)
 }
 
-/// An `eth_getProof` response as a proof of one account and slot. Nodes shorten quantities
-/// (`0x4a8`), so every number is left-padded back to its width.
-pub fn storage_proof(path: &str) -> anyhow::Result<StorageProof> {
+/// An `eth_getProof` response as a proof of one account and slot (`Proof::Storage`). Nodes
+/// shorten quantities (`0x4a8`), so every number is left-padded back to its width.
+pub fn storage_proof(path: &str) -> anyhow::Result<Proof> {
     let j: serde_json::Value = serde_json::from_slice(&std::fs::read(path)?)?;
     let r = &j["result"];
     let nodes = |v: &serde_json::Value| -> anyhow::Result<Vec<Vec<u8>>> {
@@ -121,9 +120,9 @@ pub fn storage_proof(path: &str) -> anyhow::Result<StorageProof> {
     };
     let s = &r["storageProof"][0];
     let address = hex_decode(r["address"].as_str().unwrap_or_default())?;
-    Ok(StorageProof {
+    Ok(Proof::Storage {
         address: address.try_into().map_err(|_| anyhow::anyhow!("{path}: bad address"))?,
-        account: Account {
+        account: EthAccount {
             nonce: u64::from_str_radix(r["nonce"].as_str().unwrap_or("0x0").trim_start_matches("0x"), 16)?,
             balance: hex32(&r["balance"])?,
             storage_root: hex32(&r["storageHash"])?,

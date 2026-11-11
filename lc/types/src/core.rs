@@ -11,12 +11,13 @@
 //! recorded mainnet update and every adversarial mutation, both must reach the same verdict and
 //! the same store.
 //!
-//! On top of the spec, an update must be signed by at least 2/3 of the committee
-//! (`InsufficientSigners`), because only finalized headers are applied and the spec applies those
-//! only with a supermajority; and it must advance the store (`UpdateNotNewer`, R.8).
+//! On top of the spec, an update must be signed by at least the instance's `min_participants`,
+//! never fewer than 342 of 512 (`InsufficientSigners`), because only finalized headers are
+//! applied and the spec applies those only with a supermajority; and it must advance the store
+//! (`UpdateNotNewer`, R.8).
 
 use crate::error::Refusal;
-use crate::{ChainConfig, Root};
+use crate::{InstanceConfig, Root, SUPERMAJORITY};
 use borsh::{BorshDeserialize, BorshSerialize};
 use sha2::{Digest, Sha256};
 
@@ -197,8 +198,8 @@ fn epoch(slot: u64) -> u64 {
 }
 
 /// `is_valid_light_client_header`: the execution commitment under the body root.
-pub fn is_valid_header(cfg: &ChainConfig, h: &LightClientHeader) -> bool {
-    let gloas = epoch(h.beacon.slot) >= cfg.gloas_epoch;
+pub fn is_valid_header(cfg: &InstanceConfig, h: &LightClientHeader) -> bool {
+    let gloas = epoch(h.beacon.slot) >= cfg.gloas_epoch();
     match (&h.execution, gloas) {
         (Execution::Payload(p), false) => is_valid_branch(payload_root(p), &h.execution_branch, 4, 9, &h.beacon.body_root),
         (Execution::BlockHash(hash), true) => is_valid_branch(*hash, &h.execution_branch, 11, 808, &h.beacon.body_root),
@@ -208,21 +209,25 @@ pub fn is_valid_header(cfg: &ChainConfig, h: &LightClientHeader) -> bool {
 
 /// Where a state field sits, by the fork of the state: (index, depth) for the finalized
 /// checkpoint root, the current committee, and the next committee.
-fn state_positions(cfg: &ChainConfig, slot: u64) -> [(u64, usize); 3] {
+fn state_positions(cfg: &InstanceConfig, slot: u64) -> [(u64, usize); 3] {
     let e = epoch(slot);
-    if e >= cfg.gloas_epoch {
+    if e >= cfg.gloas_epoch() {
         [(223, 9), (897, 11), (898, 11)]
-    } else if e >= cfg.electra_epoch {
+    } else if e >= cfg.electra_epoch() {
         [(41, 7), (22, 6), (23, 6)]
     } else {
         [(41, 6), (22, 5), (23, 5)]
     }
 }
 
-/// `Init`: the store of an instance from a bootstrap whose header hashes to `checkpoint`, and the
-/// bootstrap committee's keys.
-pub fn bootstrap(cfg: &ChainConfig, checkpoint: &Root, b: &LightClientBootstrap, committee: &[u8]) -> Result<LightClientStore, Refusal> {
-    if beacon_root(&b.header.beacon) != *checkpoint {
+/// `Init`: the store of an instance from a bootstrap whose header hashes to the config's
+/// checkpoint, and the bootstrap committee's keys.
+pub fn bootstrap(cfg: &InstanceConfig, b: &LightClientBootstrap, committee: &[u8]) -> Result<LightClientStore, Refusal> {
+    // An instance may ask for more signers than the specs' supermajority, never fewer.
+    if cfg.finality.min_participants < SUPERMAJORITY || cfg.finality.min_participants as usize > SYNC_COMMITTEE_SIZE {
+        return Err(Refusal::MalformedInput);
+    }
+    if beacon_root(&b.header.beacon) != cfg.checkpoint {
         return Err(Refusal::CheckpointRootMismatch);
     }
     if !is_valid_header(cfg, &b.header) {
@@ -245,9 +250,9 @@ fn bit(bits: &[u8; 64], i: usize) -> bool {
 }
 
 /// The signing root of `header` for a sync-committee signature at `signature_slot`.
-pub fn signing_root(cfg: &ChainConfig, header: &BeaconBlockHeader, signature_slot: u64) -> Root {
+pub fn signing_root(cfg: &InstanceConfig, header: &BeaconBlockHeader, signature_slot: u64) -> Root {
     let version = cfg.fork_version(epoch(signature_slot.max(1) - 1));
-    let fork_data_root = sha256(&chunk(&version), &cfg.genesis_validators_root);
+    let fork_data_root = sha256(&chunk(&version), &cfg.chain.genesis_validators_root);
     let mut domain = [0u8; 32];
     domain[..4].copy_from_slice(&DOMAIN_SYNC_COMMITTEE);
     domain[4..].copy_from_slice(&fork_data_root[..28]);
@@ -287,12 +292,12 @@ pub fn verify_signature(committee: &[u8], bits: &[u8; 64], msg: &Root, signature
 /// `validate_light_client_update` then `apply_light_client_update`, for a finalized header: the
 /// store after `u`, and whether it finalized a newer header. `current` and `next` are the keys of
 /// the committees `store` holds the roots of.
-pub fn update(cfg: &ChainConfig, store: &LightClientStore, u: &LightClientUpdate, current: &[u8], next: Option<&[u8]>) -> Result<(LightClientStore, bool), Refusal> {
+pub fn update(cfg: &InstanceConfig, store: &LightClientStore, u: &LightClientUpdate, current: &[u8], next: Option<&[u8]>) -> Result<(LightClientStore, bool), Refusal> {
     // Past the weak-subjectivity bound the instance is replaced, not advanced (F.10).
-    if cfg.slot_time(u.signature_slot) > cfg.slot_time(store.finalized_header.slot) + cfg.max_store_age {
+    if cfg.slot_time(u.signature_slot) > cfg.slot_time(store.finalized_header.slot) + cfg.finality.weak_subjectivity_period {
         return Err(Refusal::StaleStore);
     }
-    if signers(&u.sync_committee_bits) * 3 < SYNC_COMMITTEE_SIZE * 2 {
+    if signers(&u.sync_committee_bits) < cfg.finality.min_participants.max(SUPERMAJORITY) as usize {
         return Err(Refusal::InsufficientSigners);
     }
     if !(u.signature_slot > u.attested_header.beacon.slot && u.attested_header.beacon.slot >= u.finalized_header.beacon.slot) {

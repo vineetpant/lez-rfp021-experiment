@@ -20,8 +20,9 @@ prove `Update` privately:   ── proof ──▶  verify the proof (flat fee)
 consumer
 ────────
 eth_getProof / receipts
-send an attestation:        ──────────▶  check the proofs against a record, evaluate the
-  proofs + typed predicates               predicates, return a statement with an ID
+send a claim:               ──────────▶  check the proofs against a finalised header,
+  facts: proofs + conditions              evaluate the conditions, return a statement with
+                                          an ID per fact
   (public, or private: only               (private: only CheckRecord is published)
   CheckRecord is published)
 ```
@@ -30,13 +31,13 @@ send an attestation:        ──────────▶  check the proofs 
    consensus specs' protocol, with the BLS signature checked by `blst`.
 2. **The operator proves it privately** and submits the proof. The sequencer verifies it
    without re-running the BLS check (`Update` in `lc/guest/src/bin/eth_lc.rs`).
-3. **The instance advances**, and the finalized header is written once to its own record
-   account, derived from the instance and the slot (`Advance`, `WriteRecord`).
-4. **A consumer attests**: Merkle-Patricia proofs against a record, and predicates such as
-   `CheckSlotValue`, `CheckAccountBalance` or `CheckLogData`
+3. **The instance advances**, and the finalised header is written once to its own account,
+   derived from the instance and the execution block number (`Advance`, `WriteRecord`).
+4. **A consumer sends a claim**: facts, each a Merkle-Patricia proof against a finalised header
+   with conditions on its values, such as `StorageValue`, `AccountBalance` or `LogDataWord`
    ([`rfp-021/statements.md`](rfp-021/statements.md)).
-5. **`statement::check`** verifies the proofs, evaluates the predicates and returns a statement
-   whose ID comes from the Ethereum state alone, for the consumer's nullifier.
+5. **`statement::check`** verifies the proofs, evaluates the conditions and returns a statement
+   with one ID per fact, from the Ethereum state alone, for the consumer's nullifier.
 
 The verifier is held to Helios's `consensus-core` in the tests: on every recorded update and
 every attack case, both reach the same verdict and store (proposal section 11).
@@ -48,12 +49,12 @@ Each message run through the program in RISC Zero's executor, metered as LEZ met
 
 | Action | Path | Cycles | Within |
 |---|---|---:|---|
-| Update, committee handoff | private, proven by the operator | 12.53M | not metered: a flat fee |
-| Update, finality | private, proven by the operator | 11.39M | not metered: a flat fee |
-| Init | public | 1.36M | 10M per transaction |
-| Attestation, storage slot | public | 301,587 | 2M default gas limit |
-| Attestation, account balance | public | 179,815 | 2M default gas limit |
-| Attestation, receipt log | public | 83,003 | 2M default gas limit |
+| Update, committee handoff | private, proven by the operator | 12,554,439 | not metered: a flat fee |
+| Update, finality | private, proven by the operator | 11,369,739 | not metered: a flat fee |
+| Init | public | 1,359,479 | 10M per transaction |
+| Attestation, storage slot | public | 301,471 | 2M default gas limit |
+| Attestation, account balance | public | 179,974 | 2M default gas limit |
+| Attestation, receipt log | public | 83,076 | 2M default gas limit |
 
 On a LEZ v0.4 devnet with real proofs (9 Nov 2026, M3 Pro laptop, base fees at the floor of 8;
 [`rfp-021/results.md`](rfp-021/results.md)):

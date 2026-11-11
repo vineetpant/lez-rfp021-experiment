@@ -27,32 +27,66 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use error::Refusal;
 use history::Ancestry;
 use lee_core::account::{AccountId, Actor};
-use lee_core::program::PdaSeed;
+use lee_core::program::{PdaSeed, ProgramEvent};
 use sha2::{Digest, Sha256};
-use statement::{Attestation, Statement};
+use statement::{Claim, Statement};
 
 pub type Root = [u8; 32];
 
-/// What an instance is bound to at `Init`, never changed afterwards.
+/// The chain an instance follows: its execution chain and its consensus network.
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
-pub struct ChainConfig {
+pub struct ChainBinding {
     pub chain_id: u64,
     pub genesis_validators_root: Root,
-    pub genesis_time: u64,
-    /// `(epoch, fork version)` of every fork, oldest first.
-    pub forks: Vec<(u64, [u8; 4])>,
-    /// Where the state's field positions change: Electra deepened the state tree, Gloas again.
-    pub electra_epoch: u64,
-    pub gloas_epoch: u64,
-    /// How long after its finalized slot a store may still be advanced, in seconds. Past it,
-    /// the instance is outside the weak-subjectivity period and is replaced, not refreshed.
-    pub max_store_age: u64,
 }
 
-impl ChainConfig {
+/// How the instance decides a header is final.
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub struct FinalityParams {
+    pub genesis_time: u64,
+    /// `(activation epoch, fork version)` of every fork, oldest first.
+    pub forks: Vec<(u64, [u8; 4])>,
+    /// Signers an update needs, of 512; never fewer than the specs' supermajority of 342.
+    pub min_participants: u16,
+    /// Seconds after its finalized slot that a store may still be advanced. Past it the
+    /// instance is replaced, not refreshed (F.10).
+    pub weak_subjectivity_period: u64,
+}
+
+/// What an instance is bound to at `Init` and never changes (F.9, F.13).
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub struct InstanceConfig {
+    /// The beacon block root the instance starts from.
+    pub checkpoint: Root,
+    pub chain: ChainBinding,
+    pub finality: FinalityParams,
+}
+
+/// The fewest signers any instance accepts: more than 2/3 of 512.
+pub const SUPERMAJORITY: u16 = 342;
+
+/// Positions in the fork schedule, oldest first, where the state's field positions change.
+const ELECTRA: usize = 5;
+const GLOAS: usize = 7;
+
+impl InstanceConfig {
     /// The fork version in force at `epoch`.
     pub fn fork_version(&self, epoch: u64) -> [u8; 4] {
-        self.forks.iter().rev().find(|(e, _)| *e <= epoch).map_or([0; 4], |(_, v)| *v)
+        self.finality.forks.iter().rev().find(|(e, _)| *e <= epoch).map_or([0; 4], |(_, v)| *v)
+    }
+
+    fn fork_epoch(&self, position: usize) -> u64 {
+        self.finality.forks.get(position).map_or(u64::MAX, |(e, _)| *e)
+    }
+
+    /// Electra deepened the state tree.
+    pub fn electra_epoch(&self) -> u64 {
+        self.fork_epoch(ELECTRA)
+    }
+
+    /// Gloas deepened it again, and moved the execution payload out of the block body.
+    pub fn gloas_epoch(&self) -> u64 {
+        self.fork_epoch(GLOAS)
     }
 
     pub fn hash(&self) -> Root {
@@ -64,87 +98,115 @@ impl ChainConfig {
 
     /// Unix time of `slot`, in seconds.
     pub fn slot_time(&self, slot: u64) -> u64 {
-        self.genesis_time + slot * 12
+        self.finality.genesis_time + slot * 12
     }
 
     /// When a store finalized at `slot` stops being advanceable, in milliseconds.
     pub fn stale_from_ms(&self, slot: u64) -> u64 {
-        (self.slot_time(slot) + self.max_store_age) * 1000
+        (self.slot_time(slot) + self.finality.weak_subjectivity_period) * 1000
     }
 }
 
 pub use crate::core::LightClientStore;
 
-/// One finalized header as the program keeps it, and attestations are proven against.
+/// A verified finalised header, as its account holds it and attestations are checked against
+/// (D4). It names its instance and chain, so a statement is refused on another (F.5, F.15).
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
-pub struct HeaderRecord {
-    pub chain_id: u64,
+pub struct FinalisedHeader {
+    pub instance: AccountId,
+    pub chain: ChainBinding,
     pub slot: u64,
     pub beacon_root: Root,
     pub block_number: u64,
+    /// Where history proofs start (proposal section 8).
     pub block_hash: Root,
     pub state_root: Root,
     pub receipts_root: Root,
-    /// How many of the 512 committee members signed the update that finalized it, so a
-    /// consumer can require more than 2/3.
+    /// Of 512, so a consumer can require more than the instance does.
     pub signers: u16,
+    /// The sync-committee period whose committee signed it.
+    pub committee_period: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct Instance {
-    pub cfg: ChainConfig,
+    pub config: InstanceConfig,
     pub store: LightClientStore,
-    pub latest: HeaderRecord,
+    pub latest: FinalisedHeader,
 }
 
-/// A record account's state: the record, and the instance whose update verified it.
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
-pub struct RecordState {
-    pub instance: AccountId,
-    pub record: HeaderRecord,
-}
-
-/// The seed of `instance`'s record of the header at `slot`.
-pub fn record_seed(instance: &AccountId, slot: u64) -> PdaSeed {
+/// The seed of `instance`'s finalised header for execution block `block_number`.
+pub fn header_seed(instance: &AccountId, block_number: u64) -> PdaSeed {
     let mut h = Sha256::new();
-    h.update(b"eth_lc/record/v1");
+    h.update(b"header");
     h.update(instance.value());
-    h.update(slot.to_le_bytes());
+    h.update(block_number.to_le_bytes());
     PdaSeed::new(h.finalize().into())
 }
 
-/// Where `instance`'s record of the header at `slot` lives: a public account derived from the
-/// program, so no one holds a key to it and only the program writes it.
-pub fn record_account(program: &AccountId, instance: &AccountId, slot: u64) -> AccountId {
-    AccountId::for_public_pda(program, &record_seed(instance, slot))
+/// Where `instance`'s finalised header for `block_number` lives: a public account derived from
+/// the program, so no one holds a key to it and only the program writes it.
+pub fn header_account(program: &AccountId, instance: &AccountId, block_number: u64) -> AccountId {
+    AccountId::for_public_pda(program, &header_seed(instance, block_number))
 }
 
-/// An event's 8-byte selector: the start of the keccak of its signature, as Ethereum does.
-pub fn selector(signature: &str) -> [u8; 8] {
-    alloy_primitives::keccak256(signature.as_bytes())[..8].try_into().expect("8 bytes")
+/// What the program emits, so clients and operators follow an instance without polling it.
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub enum Event {
+    CommitteeHandoff { instance: AccountId, period: u64, committee_root: Root },
+    HeaderFinalised { instance: AccountId, block_number: u64, header: AccountId },
+    Attested { statement: statement::Statement },
+}
+
+impl Event {
+    /// As a LEZ event: tagged with the first 8 bytes of `sha256("eth_lc::<name>")`, LEZ's
+    /// convention, and the event itself as data.
+    pub fn to_program_event(&self) -> ProgramEvent {
+        let name = match self {
+            Event::CommitteeHandoff { .. } => "eth_lc::CommitteeHandoff",
+            Event::HeaderFinalised { .. } => "eth_lc::HeaderFinalised",
+            Event::Attested { .. } => "eth_lc::Attested",
+        };
+        let tag: [u8; 32] = Sha256::digest(name.as_bytes()).into();
+        ProgramEvent { selector: tag[..8].try_into().expect("8 bytes"), data: borsh::to_vec(self).expect("event encodes") }
+    }
 }
 
 pub(crate) fn b256(r: &Root) -> B256 {
     B256::from(*r)
 }
 
-/// The record of a verified finalized `header`. Before Gloas its execution fields are in the
-/// payload header the core proved under the body root; from Gloas only the block hash is, and
-/// `rlp`, the execution header that must hash to it, gives the rest.
-pub fn record_of(cfg: &ChainConfig, header: &core::LightClientHeader, rlp: Option<&[u8]>, signers: u16) -> Result<HeaderRecord, Refusal> {
-    let (block_number, block_hash, state_root, receipts_root) = match &header.execution {
-        core::Execution::Payload(p) => (p.block_number, p.block_hash, p.state_root, p.receipts_root),
+/// The execution block a verified header commits to: number, hash, state and receipts roots.
+/// Up to Fulu they sit in the payload header the verifier proved under the body root. From Gloas
+/// only the block hash does, and `rlp`, the execution header, must hash to it.
+fn execution_block(header: &core::LightClientHeader, rlp: Option<&[u8]>) -> Result<(u64, Root, Root, Root), Refusal> {
+    match &header.execution {
+        core::Execution::Payload(p) => Ok((p.block_number, p.block_hash, p.state_root, p.receipts_root)),
         core::Execution::BlockHash(hash) => {
             let rlp = rlp.ok_or(Refusal::InvalidExecutionProof)?;
             if alloy_primitives::keccak256(rlp).0 != *hash {
                 return Err(Refusal::InvalidExecutionProof);
             }
-            let e = ExecutionHeader::decode(&mut &rlp[..]).map_err(|_| Refusal::InvalidExecutionProof)?;
-            (e.number, *hash, e.state_root.0, e.receipts_root.0)
+            let block = ExecutionHeader::decode(&mut &rlp[..]).map_err(|_| Refusal::InvalidExecutionProof)?;
+            Ok((block.number, *hash, block.state_root.0, block.receipts_root.0))
         }
-    };
-    Ok(HeaderRecord {
-        chain_id: cfg.chain_id,
+    }
+}
+
+/// The finalised header `instance` keeps for a verified `header`, signed by `signers` of the
+/// committee of `committee_period`.
+pub fn finalised_header(
+    instance: &AccountId,
+    config: &InstanceConfig,
+    header: &core::LightClientHeader,
+    rlp: Option<&[u8]>,
+    signers: u16,
+    committee_period: u64,
+) -> Result<FinalisedHeader, Refusal> {
+    let (block_number, block_hash, state_root, receipts_root) = execution_block(header, rlp)?;
+    Ok(FinalisedHeader {
+        instance: instance.clone(),
+        chain: config.chain.clone(),
         slot: header.beacon.slot,
         beacon_root: core::beacon_root(&header.beacon),
         block_number,
@@ -152,28 +214,28 @@ pub fn record_of(cfg: &ChainConfig, header: &core::LightClientHeader, rlp: Optio
         state_root,
         receipts_root,
         signers,
+        committee_period,
     })
 }
 
 #[derive(Clone, Debug, BorshSerialize, BorshDeserialize)]
 pub enum LcMsg {
-    /// Public, to an empty instance, signed by its account: bind `cfg` and start the store
-    /// from `checkpoint`, a beacon block root the deployer trusts, with the bootstrap and its
-    /// committee's keys (SSZ); `rlp` is the execution header, needed from Gloas on.
+    /// Public, to an empty instance, signed by its account: bind `config` and start the store
+    /// from its checkpoint, with the bootstrap and its committee's keys (SSZ); `rlp` is the
+    /// execution header, needed from Gloas on.
     Init {
-        cfg: ChainConfig,
-        checkpoint: Root,
+        config: InstanceConfig,
         bootstrap: core::LightClientBootstrap,
         committee: Vec<u8>,
         rlp: Option<Vec<u8>>,
     },
     /// Private, to the submitter's own actor of this program: verify `update` on top of `store`
-    /// under `cfg`, with the keys (SSZ) of the committees `store` holds the roots of, then advance
-    /// `instance`. The instance checks that `store` and `cfg` are the ones it holds, so the
-    /// submitter can't pick either.
+    /// under `config`, with the keys (SSZ) of the committees `store` holds the roots of, then
+    /// advance `instance`. The instance checks that `store` and `config` are the ones it holds,
+    /// so the submitter can't pick either.
     Update {
         instance: Actor,
-        cfg: ChainConfig,
+        config: InstanceConfig,
         store: LightClientStore,
         update: core::LightClientUpdate,
         current: Vec<u8>,
@@ -181,38 +243,38 @@ pub enum LcMsg {
         rlp: Option<Vec<u8>>,
     },
     /// Public, to the instance, only from this program: adopt `next` if `prev` is the store
-    /// held and `cfg_hash` the config bound, and write `record`, if the update finalized a new
-    /// header.
+    /// held and `config_hash` the config bound, and write `header`, if the update finalised a new
+    /// one.
     Advance {
-        cfg_hash: Root,
+        config_hash: Root,
         prev: LightClientStore,
         next: LightClientStore,
-        record: Option<HeaderRecord>,
+        header: Option<FinalisedHeader>,
     },
-    /// Public, to a record account, only from this program: write `record` once.
-    WriteRecord { instance: AccountId, record: HeaderRecord },
-    /// Public, to `instance`'s record account of the header to prove against: check
-    /// `attestation` against that header or, through `ancestry`, an earlier block. Emits
-    /// `Attested`, and with `reply` also sends it back to the calling actor.
+    /// Public, to a finalised header's account, only from this program: write `header` once.
+    WriteRecord { header: FinalisedHeader },
+    /// Public, to `instance`'s finalised header to prove against: check `claim` against it or,
+    /// through `ancestry`, an earlier block. Emits `Attested`, and with `reply` also sends the
+    /// statement back to the calling actor.
     Attest {
         instance: AccountId,
-        attestation: Attestation,
+        claim: Claim,
         ancestry: Option<Ancestry>,
         reply: bool,
     },
-    /// Private, to the caller's own actor of this program: check `attestation` against `record`, or
-    /// an earlier block through `ancestry`, then have `instance`'s record account of that slot
-    /// confirm it holds `record`. Only that check is published; the query, the proof and the
-    /// statement stay in the caller's proof.
+    /// Private, to the caller's own actor of this program: check `claim` against `header`, or an
+    /// earlier block through `ancestry`, then have that header's account confirm it holds
+    /// `header`. Only that check is published; the claim and the statement stay in the caller's
+    /// proof.
     AttestPrivate {
         instance: Actor,
-        record: HeaderRecord,
-        attestation: Attestation,
+        header: FinalisedHeader,
+        claim: Claim,
         ancestry: Option<Ancestry>,
     },
-    /// Public, to a record account, only from this program: refuse unless it is `instance`'s
-    /// record and holds `record`.
-    CheckRecord { instance: AccountId, record: HeaderRecord },
-    /// From a record account to the actor that sent `Attest { reply: true, .. }`.
+    /// Public, to a finalised header's account, only from this program: refuse unless it holds
+    /// `header`.
+    CheckRecord { header: FinalisedHeader },
+    /// From a finalised header's account to the actor that sent `Attest { reply: true, .. }`.
     Attested { statement: Statement },
 }

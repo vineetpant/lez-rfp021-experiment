@@ -1,4 +1,4 @@
-# Attestations, statement IDs and nullifiers
+# Claims, statement IDs and nullifiers
 
 How a consumer program asks a question about Ethereum, how `eth_lc` answers it, what identifies
 the answer, and how a consumer uses that identifier to act on an Ethereum fact exactly once.
@@ -11,54 +11,48 @@ end. RFP-021 items: F.3–F.8, F.15, S.4, U.6, VS.2, VS.3, soft #2 and #4.
 |---|---|---|---|
 | 1 | The LEZ program implements the light-client signature check and the surrounding checks in one function | ✅ built | `core::update` (`lc/types/src/core.rs`), run by the `Update` message |
 | 2 | That function is proven privately on the operator's machine, which submits the transaction with the proof (the RISC Zero receipt) | ✅ built, on the node with real proofs | the operator's wallet proves `Update`; the sequencer verifies the receipt |
-| 3 | The transaction advances the finalized header, stored as a header record in a program-derived account | ✅ built | `Advance`, then `WriteRecord` at `for_public_pda(eth_lc, H(instance ‖ slot))` |
+| 3 | The transaction advances the finalized header, stored as a finalised header in its own program-derived account | ✅ built | `Advance`, then `WriteRecord` at `for_public_pda(eth_lc, H("header" ‖ instance ‖ block_number))` |
 | 4 | Consumers fetch from Ethereum what the predicate needs, e.g. `eth_getProof(address, slot, block)` for an ERC-20 balance (the state-trie and storage-trie paths) | ✅ storage proofs from `eth_getProof`, recorded in `tests/data`; logs from `eth_getBlockReceipts`, in the tests; live fetching is the operator daemon's and the client's (#29) | `src/chain.rs` (`storage_proof`); `tests/support` (receipt proofs); a balance slot is `keccak(holder ‖ balances_position)` |
-| 5 | Consumers submit the proof and the predicate, e.g. `(CheckSlotValue, equal to, value, proof)`, to the program | ✅ built: typed predicates over one or more proofs; logs on the node still to wire (#34) | `Attest` to the record account; the record fixes the block, and an older block is reached with an ancestry, not a block number |
+| 5 | Consumers submit the proof and the predicate, e.g. a storage proof with `StorageValue equal to value`, to the program | ✅ built: a claim of one or more facts, each a proof with its conditions; logs on the node still to wire (#34) | `Attest` to the record account; the record fixes the block, and an older block is reached with an ancestry, not a block number |
 | 6 | The program checks the proof, evaluates the predicate, and returns a statement with an ID | ✅ built | `statement::check`; the ID is derived from the proven Ethereum state (section 3) |
 
-## 1. The question: an attestation
+## 1. The question: a claim
 
-A consumer program builds an **attestation** in its own transaction (F.4, F.7): proofs against
-one verified header, and typed predicates over the values they establish, all of which must
-hold (soft #4). The module needs no change for a new question.
+A consumer program builds a **claim** in its own transaction (F.4, F.7): facts to prove against
+one finalised header, each a Merkle-Patricia proof with the **conditions** its values must meet,
+all of which must hold (soft #4). The module needs no change for a new question. These are the
+proposal's types (section 4.5–4.6).
 
 ```rust
-Attestation {
-    chain_id,                 // the chain the consumer means (F.5)
-    proofs: [Proof],          // each checked against the same verified header
-    predicates: [Predicate],  // all must hold (AND)
-}
+Claim { chain_id, facts: [Fact] }          // the chain the consumer expects (F.5); all facts must hold
+Fact  { proof: Proof, conditions: [Condition] }
 
-Proof = Storage(StorageProof { address, account, account_proof, slot, value, storage_proof })
-      | Account(AccountProof { address, account, account_proof })   // balance, nonce, code
-      | Receipt(ReceiptProof { tx_index, receipt, proof, log_index }) // an event
+Proof = Log     { tx_index, receipt, proof, log_index }                          // under receipts_root
+      | Storage { address, account, account_proof, slot, value, storage_proof }  // under state_root
+      | Account { address, account, account_proof }                              // under state_root
 
-Predicate = CheckSlotValue      { proof, op, value }
-          | CheckAccountBalance { proof, op, value }
-          | CheckAccountNonce   { proof, op, value }
-          | CheckAccountCode    { proof, code_hash }
-          | CheckLogAddress     { proof, address }
-          | CheckLogTopic       { proof, index, op, value }
-          | CheckLogData        { proof, word, op, value }   // the word-th 32-byte word of the data
-
-op = Equal | NotEqual | Less | AtMost | Greater | AtLeast   // as unsigned 256-bit integers
+Condition { subject, op, rhs: [u8; 32] }   // uint, int, address or bytes32, as a 32-byte word
+Subject = AccountBalance | AccountNonce | AccountCodeHash
+        | StorageValue { offset, width }   // a packed field; { 0, 32 } is the whole slot
+        | LogEmitter | LogTopic(i) | LogDataWord(i) | LogTopicCount | LogDataLength
+Op      = Equal | NotEqual | Less | AtMost | Greater | AtLeast
 ```
 
-`proof` names one of the attestation's proofs by position, so one deposit is three predicates
-over one receipt. A predicate over a value its proof doesn't establish (an account balance asked
-of a storage proof, a topic the log doesn't have) is refused as `MalformedInput`, never read as
-zero. Account predicates need an `Account` proof, so their ID covers the account (section 3).
+A condition on a value its fact doesn't establish (an account balance asked of a storage proof,
+a topic the log doesn't have, a packed field that runs off the slot) is refused as
+`MalformedInput`, never read as zero. Account conditions need an `Account` proof, so their ID
+covers the account (section 3).
 
-An attestation may also carry an **ancestry**: an EIP-2935 proof or a parent-hash chain from a
-record back to an older block, so the proofs are checked under that block's roots (proposal
-section 8).
+A claim may also carry an **ancestry**: an EIP-2935 proof or a parent-hash chain from a header
+the instance holds back to an older block, so the facts are checked under that block's roots
+(proposal section 8).
 
 ### What `eth_lc` checks
 
-1. The record is held by the instance the consumer names; with an ancestry, the history proof
-   leads from the record to the target block, whose header hashes to the proven block hash.
-2. `chain_id` equals the record's (`WrongChain` otherwise).
-3. Each proof's Merkle-Patricia path verifies against the target block's roots:
+1. The finalised header is held by the instance the consumer names; with an ancestry, the
+   history proof leads from it to the target block, whose header hashes to the proven block hash.
+2. `chain_id` equals the header's (`WrongChain` otherwise).
+3. Each fact's Merkle-Patricia path verifies against the target block's roots:
    - **Log:** from `receipts_root`, key `RLP(tx_index)`, to the receipt; the receipt's status
      must be success (a reverted transaction's logs prove nothing); the log at `log_index`.
    - **Storage:** from `state_root`, key `keccak(address)`, to the account; then from its
@@ -96,19 +90,22 @@ On Ethereum a user sends 10 ETH to the vault; `receive()` emits
 The LEZ bridge program builds:
 
 ```rust
-Attestation {
+Claim {
     chain_id: 1,
-    proofs: [Receipt(ReceiptProof { tx_index: 57, receipt, proof, log_index: 0 })],
-    predicates: [
-        CheckLogAddress { proof: 0, address: VAULT },
-        CheckLogTopic   { proof: 0, index: 0, op: Equal, value: keccak256("Deposit(address,uint256,uint256)") },
-        CheckLogData    { proof: 0, word: 0,  op: Equal, value: word(10e18) },   // fixed denomination
-        // optional: CheckLogTopic { proof: 0, index: 1, op: Equal, value: word(0xUSER) }
-    ],
+    facts: [Fact {
+        proof: Log { tx_index: 57, receipt, proof, log_index: 0 },
+        conditions: [
+            { subject: LogEmitter,     op: Equal, rhs: word(VAULT) },
+            { subject: LogTopic(0),    op: Equal, rhs: keccak256("Deposit(address,uint256,uint256)") },
+            { subject: LogDataWord(0), op: Equal, rhs: word(10e18) },   // fixed denomination
+            // optional: { subject: LogTopic(1), op: Equal, rhs: word(0xUSER) }
+        ],
+    }],
 }
 ```
 
-With an EIP-2935 ancestry from the latest record when block 26,400,000 isn't a record's own.
+With an EIP-2935 ancestry from the latest finalised header when block 26,400,000 isn't one the
+instance holds.
 `Equal` rather than `AtLeast` keeps deposits in fixed denominations, which RFP-022 recommends so
 that deposits look alike.
 
@@ -119,21 +116,20 @@ An ERC-20 deposit is the same with the token's `Transfer` log: emitter = token, 
 
 ```rust
 Statement {
-    instance,               // the instance whose record was used (F.15)
+    instance,               // the instance whose header was used (F.15)
     chain_id,               // the chain it is about (F.5)
     block_number,           // the block the facts were proven under
-    facts: [Fact { class, id }],  // one per proof, in the attestation's order
-    predicates,             // what was asserted
+    facts: [ProvenFact { class, id, conditions }],  // one per fact, in the claim's order
 }
 ```
 
 The consumer receives it in the same transaction, on both paths (F.7):
 
-- **Public:** `Attest { instance, attestation, ancestry, reply: true }` to the record account;
+- **Public:** `Attest { instance, claim, ancestry, reply: true }` to the finalised header's account;
   `eth_lc` replies `Attested { statement }` to the caller and emits it as an event.
-- **Private:** the consumer's private actor calls `eth_lc`'s private actor, which checks the attestation
-  inside the proof, confirms the record with one `CheckRecord { instance, record }` to the
-  record account, and returns the statement to the consumer inside the proof. Only
+- **Private:** the consumer's private actor calls `eth_lc`'s private actor, which checks the claim
+  inside the proof, confirms the header with one `CheckRecord { header }` to the
+  header's account, and returns the statement to the consumer inside the proof. Only
   `CheckRecord` is published by `eth_lc`.
 
 ## 3. Statement IDs (F.6)
@@ -159,8 +155,8 @@ For the 10 ETH deposit:
 
 | Field | Where it comes from | Why the caller can't choose it |
 |---|---|---|
-| `chain_id` | the record | checked against the attestation; the record was written by the program |
-| `block_hash` | the deposit block's hash | in the record, verified by the light client, or proven from it through EIP-2935 or the parent-hash chain |
+| `chain_id` | the finalised header | checked against the claim; the header was written by the program |
+| `block_hash` | the deposit block's hash | in the finalised header, verified by the light client, or proven from it through EIP-2935 or the parent-hash chain |
 | `tx_index` | the receipts-trie key | a different index is a different path, and the proof fails |
 | `log_index`, emitter, topics, data | the proven receipt | read from the receipt the path leads to |
 
@@ -168,8 +164,8 @@ For the 10 ETH deposit:
 
 | Left out | Why |
 |---|---|
-| The predicates | Two consumers asking different questions about one deposit get the same ID, so they can't derive incompatible identifiers for one event (RFP, "Uniqueness is the consumer's job"). |
-| The record used | One deposit can be attested against its own block's record or against a newer record through history. If the record were in the ID, one deposit would have several IDs and could be consumed once per record. |
+| The conditions | Two consumers asking different questions about one deposit get the same ID, so they can't derive incompatible identifiers for one event (RFP, "Uniqueness is the consumer's job"). |
+| The header used | One deposit can be attested against its own block's header or against a newer header through history. If the header were in the ID, one deposit would have several IDs and could be consumed once per header. |
 | The instance | An instance and its replacement (F.10) give the same ID for the same deposit, so a migration can't be used to consume a deposit twice. |
 | The path | Public, private and the dry run run the same `statement::check`. |
 | The proof bytes | Two valid proofs of one receipt are the same fact. |
@@ -185,7 +181,7 @@ For the 10 ETH deposit:
 
 ### The properties
 
-- **Deterministic:** given one deposit, every consumer, every record, every instance of that
+- **Deterministic:** given one deposit, every consumer, every header, every instance of that
   chain and both paths compute the same 32 bytes. Identical Ethereum state, identical ID.
 - **Collision-resistant:** the encoding is injective (fixed widths, length prefixes, a kind
   tag), so two distinct facts differ in at least one hashed byte, and SHA-256 keeps their IDs
@@ -220,7 +216,7 @@ it.
 **A program-derived address (PDA)** is an account address computed from a program's ID and a
 seed, `for_public_pda(program, seed)`, rather than from a key pair. No one holds a private key
 for it, so only that program can write to it, and anyone can compute it from the same two
-inputs. `eth_lc`'s record accounts already work this way, at `PDA(eth_lc, H(instance ‖ slot))`.
+inputs. `eth_lc`'s finalised-header accounts already work this way, at `PDA(eth_lc, H("header" ‖ instance ‖ block_number))`.
 
 A consumer's nullifier for a statement ID is the account at:
 
@@ -255,13 +251,13 @@ unused, filled means spent.
   were consumed (P.9).
 - Derived from the consumer program, so two different consumers of one deposit (a mint and a
   read-only escrow check) never block each other; each guards its own action.
-- Write-once, the same pattern as `eth_lc`'s record accounts, so a spent ID stays spent.
+- Write-once, the same pattern as `eth_lc`'s finalised-header accounts, so a spent ID stays spent.
 
 ### The consumer's order of operations
 
 All in one transaction, so a failure anywhere reverts everything and spends nothing (R.2):
 
-1. Send the attestation and receive the statement (section 2).
+1. Send the claim and receive the statement (section 2).
 2. Check `statement.instance` and `statement.chain_id` equal the consumer's own fixed
    configuration (F.5, F.15).
 3. Check the fact's class is **occurrence**, or **state** only for a slot the consumer knows is
@@ -285,15 +281,15 @@ transactions could each consume the same deposit. So the nullifier crosses the b
 ```
 user's private account (proven on their machine):
   consumer program
-    └─ eth_lc private actor: checks it         ── CheckRecord { instance, record } ─▶ record account
+    └─ eth_lc private actor: checks it         ── CheckRecord { header }            ─▶ header account
     ◀─ statement
     └─ Spend { id }  ──────────────────────────────────────────────────────────────▶ nullifier account (write-once)
     └─ mint to a private account
 ```
 
-- **Published:** `CheckRecord` (which record was used), `Spend { id }` (which deposit was
+- **Published:** `CheckRecord` (which header was used), `Spend { id }` (which deposit was
   consumed), and the fee reserve, each from a one-time alias.
-- **Not published:** the attestation, the sender, the predicates, the consuming account, the LEZ
+- **Not published:** the claim, the sender, the conditions, the consuming account, the LEZ
   recipient.
 - **Which deposit was consumed** is already public on Ethereum, so publishing the ID adds no new
   correlation signal (F.8). Hashing it again would hide nothing: anyone can hash every deposit.
@@ -305,8 +301,8 @@ user's private account (proven on their machine):
 
 ### Compound claims and batches
 
-An attestation over several proofs (soft #4) or a batch (soft #2) returns one ID per proof. The consumer
-spends the ID of the fact it consumes, for example the deposit log in an attestation that also checks a
+A claim over several facts (soft #4) or a batch (soft #2) returns one ID per fact. The consumer
+spends the ID of the fact it consumes, for example the deposit log in a claim that also checks a
 balance. It never keys a nullifier on a combination: a different combination over the same
 deposit would get a different key and could be consumed again.
 
@@ -326,10 +322,10 @@ never through a `ProgramId` in mutable state (VS.3).
 
 | Piece | Today | Tracked in |
 |---|---|---|
-| Typed predicates over several proofs: slot value, account balance, nonce and code, log address, topics and data words | built, tested natively; storage on the node | — |
+| Claims of several facts, each with conditions on: slot values and packed fields, account balance, nonce and code hash, log emitter, topics, data words, topic count and data length | built, tested natively; storage on the node | — |
 | Account proofs, length-prefixed log encoding, class and instance in the statement, one ID per proof, ID tests | built, tested natively (`tests/statement.rs`) | #31 |
 | Log attestations on the node | native only | #34 |
-| Packed slots, signed integers, log topic count and data length, the mapping-slot helper | to build | #13 |
+| Signed comparisons, the mapping-slot helper, the IDL with the ID test vectors | to build | #13 |
 | The private path returning the statement to a consumer program | to build | #39 |
 | The vault, the ERC-20 and native-ETH consumers with nullifiers | to build | #36 |
 | The Recommended Consumer Pattern in the docs | this file is its basis | #37 |

@@ -12,8 +12,9 @@
 //!   but header hashes, so it covers any distance and any chain, at a cost that grows with it.
 
 use crate::error::Refusal;
-use crate::mpt::{StorageProof, verify_storage};
-use crate::HeaderRecord;
+use crate::FinalisedHeader;
+use crate::mpt::{verify_account, verify_slot};
+use crate::statement::Proof;
 use alloy_consensus::Header;
 use alloy_primitives::keccak256;
 use alloy_rlp::Decodable;
@@ -29,7 +30,8 @@ pub const HISTORY_WINDOW: u64 = 8191;
 pub enum Ancestry {
     /// The history contract's slot for the target, proven under the anchor's state root, and
     /// the target's RLP header.
-    Eip2935 { proof: StorageProof, header: Vec<u8> },
+    /// `proof` is a `Proof::Storage` of the history contract.
+    Eip2935 { proof: Proof, header: Vec<u8> },
     /// RLP headers from the anchor's block back to the target, newest first.
     ParentChain { headers: Vec<Vec<u8>> },
 }
@@ -45,22 +47,26 @@ fn header(rlp: &[u8]) -> Result<Header, Refusal> {
     Header::decode(&mut &rlp[..]).map_err(|_| Refusal::InvalidExecutionProof)
 }
 
-/// The record of an earlier block, derived from `anchor` through `ancestry`. It carries the
+/// The header of an earlier block, derived from `anchor` through `ancestry`. It carries the
 /// target's execution fields; its beacon fields are zero, because nothing here proves them.
-pub fn target_record(anchor: &HeaderRecord, ancestry: &Ancestry) -> Result<HeaderRecord, Refusal> {
+pub fn target_header(anchor: &FinalisedHeader, ancestry: &Ancestry) -> Result<FinalisedHeader, Refusal> {
     let (rlp, hash) = match ancestry {
         Ancestry::Eip2935 { proof, header: rlp } => {
-            if proof.address != HISTORY_ADDRESS {
+            let Proof::Storage { address, account, account_proof, slot, value, storage_proof } = proof else {
+                return Err(Refusal::MalformedInput);
+            };
+            if *address != HISTORY_ADDRESS {
                 return Err(Refusal::InvalidInclusionProof);
             }
-            verify_storage(&anchor.state_root, proof)?;
+            verify_account(&anchor.state_root, address, account, account_proof)?;
+            verify_slot(account, slot, value, storage_proof)?;
             let number = header(rlp)?.number;
             // The slot is the target's, and the target is inside the window the anchor's state
             // keeps, so the hash in that slot is the target's and not a later block's.
-            if proof.slot != history_slot(number) || number >= anchor.block_number || anchor.block_number - number > HISTORY_WINDOW {
+            if *slot != history_slot(number) || number >= anchor.block_number || anchor.block_number - number > HISTORY_WINDOW {
                 return Err(Refusal::InvalidInclusionProof);
             }
-            (rlp, proof.value)
+            (rlp, *value)
         }
         Ancestry::ParentChain { headers } => {
             let (first, rest) = headers.split_first().ok_or(Refusal::MalformedInput)?;
@@ -81,14 +87,13 @@ pub fn target_record(anchor: &HeaderRecord, ancestry: &Ancestry) -> Result<Heade
         return Err(Refusal::InvalidExecutionProof);
     }
     let target = header(rlp)?;
-    Ok(HeaderRecord {
-        chain_id: anchor.chain_id,
+    Ok(FinalisedHeader {
         slot: 0,
         beacon_root: [0; 32],
         block_number: target.number,
         block_hash: hash,
         state_root: target.state_root.0,
         receipts_root: target.receipts_root.0,
-        signers: anchor.signers,
+        ..anchor.clone()
     })
 }
