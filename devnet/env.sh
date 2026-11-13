@@ -26,11 +26,11 @@ WALLET_PASSWORD="${WALLET_PASSWORD:-program-tutorial}"
 # this tag ships.
 LC_BUILDER_TAG="${LC_BUILDER_TAG:-r0.1.97.0}"
 
-# The private key of the first genesis supply account in configs/sequencer_network.json.
+# The private key of the first genesis supply account in devnet/configs/sequencer_network.json.
 # Freshly claimed accounts hold no balance, so something funded has to pay for claiming them.
 PAYER_KEY=7f273098f25b71e6c005a9519f2678da8d1c7f01f6a27778e2d9948abdf901fb
 
-# The sequencer's Bedrock funding key, matching configs/bedrock/node-config.yaml.
+# The sequencer's Bedrock funding key, matching devnet/configs/bedrock/node-config.yaml.
 BEDROCK_FUNDING_PUBLIC_KEY=2e03b2eff5a45478e7e79668d2a146cf2c5c7925bce927f2b1c67f2ab4fc0d26
 
 export PATH="$PATH:$HOME/.risc0/bin"

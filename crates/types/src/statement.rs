@@ -1,4 +1,4 @@
-//! Claims and the statements they produce (proposal section 4.5–4.7, `rfp-021/statements.md`).
+//! Claims and the statements they produce (proposal sections 4.5–4.7).
 //!
 //! A consumer program sends a [`Claim`]: facts to prove against one finalised header, each a
 //! Merkle-Patricia proof with the conditions its values must meet, all of which must hold (F.3,

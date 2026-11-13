@@ -1,7 +1,7 @@
 //! Claims natively, against the finalised header the recorded mainnet segment ends on (block
 //! 26376237): a WETH storage slot and its account, proven with `eth_getProof` at that block, and
 //! receipt logs of that block. The statement IDs are checked against the properties proposal
-//! section 4.7 and `rfp-021/statements.md` give them.
+//! section 4.7 gives them.
 //!
 //!   cargo test --release --test statement
 

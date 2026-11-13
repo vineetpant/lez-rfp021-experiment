@@ -4,7 +4,7 @@ A LEZ program, `eth_lc`, that follows finalised Ethereum through the sync commit
 other LEZ programs prove facts about Ethereum (a storage slot, an account, an event log) in
 their own transaction, publicly or privately. It is the working prototype behind our
 [RFP-021](https://github.com/logos-co/rfp) proposal, **Caisson**
-([`rfp-021/proposal.md`](rfp-021/proposal.md)), on LEZ `v0.4.0-rc1`.
+(<https://claude.ai/artifact/NEstvDGmVwQC6zGXgWzpNS>), on LEZ `v0.4.0-rc1`.
 
 ## How it fits together
 
@@ -35,7 +35,7 @@ send a claim:               ──────────▶  check the proofs 
    derived from the instance and the execution block number (`Advance`, `WriteRecord`).
 4. **A consumer sends a claim**: facts, each a Merkle-Patricia proof against a finalised header
    with conditions on its values, such as `StorageValue`, `AccountBalance` or `LogDataWord`
-   ([`rfp-021/statements.md`](rfp-021/statements.md)).
+   (the proposal's sections 4.5–4.7).
 5. **`statement::check`** verifies the proofs, evaluates the conditions and returns a statement
    with one ID per fact, from the Ethereum state alone, for the consumer's nullifier.
 
@@ -105,7 +105,7 @@ block's receipts. The same data drives both:
 
 - **the native tests**: the program's code against Helios, the attack cases, claims, history
   proofs (`tests/data/history`) and the cycle costs;
-- **the devnet run** (`scripts/run.sh`): deploy, Init, every update proven and submitted, public
+- **the devnet run** (`devnet/run.sh`): deploy, Init, every update proven and submitted, public
   and private attestations, and broken attestations, each of which must be refused.
 
 The program refuses an update more than 14 days past its store, the freshness bound that the
@@ -131,10 +131,10 @@ DOCKER_DEFAULT_PLATFORM=linux/amd64 RISC0_DOCKER_CONTAINER_TAG=r0.1.97.0 \
 On a local LEZ devnet (Bedrock, the sequencer and the indexer, all pinned to `v0.4.0-rc1`):
 
 ```bash
-./scripts/up.sh              # start the devnet
-./scripts/run.sh             # the whole flow on recorded mainnet, ending in PASS
-./scripts/down.sh            # stop it, keeping its state
-./scripts/down.sh --reset    # stop it and wipe it back to genesis
+./devnet/up.sh              # start the devnet
+./devnet/run.sh             # the whole flow on recorded mainnet, ending in PASS
+./devnet/down.sh            # stop it, keeping its state
+./devnet/down.sh --reset    # stop it and wipe it back to genesis
 ```
 
 By default every proof is faked (`DEV_MODE=1`): the run takes minutes and the fees are the
@@ -149,8 +149,7 @@ keep the machine awake and otherwise idle for timed runs.
 | `crates/program/` | the `eth_lc` program, with RISC Zero's accelerated `blst`, SHA-256 and Keccak |
 | `src/` | the operator and consumer client used on the devnet, and reading recorded chain data |
 | `tests/` | the native tests, and the recorded mainnet in `tests/data/` |
-| `scripts/`, `configs/` | the devnet, and the end-to-end run |
-| `rfp-021/` | the proposal, and the design of claims, statement IDs and nullifiers |
+| `devnet/` | the local LEZ node: scripts, configs, and the end-to-end run ([`devnet/README.md`](devnet/README.md)) |
 
 ## Built on
 

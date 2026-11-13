@@ -21,7 +21,7 @@ for spec in "18080 bedrock" "3040 sequencer" "8779 indexer"; do
     if holder=$(lsof -nP -iTCP:"$port" -sTCP:LISTEN -t 2>/dev/null | head -1) && [ -n "$holder" ]; then
         echo "  port $port ($what) is held by pid $holder:" >&2
         ps -o command= -p "$holder" | sed 's/^/    /' >&2
-        die "run ./scripts/down.sh first, or stop that process"
+        die "run ./devnet/down.sh first, or stop that process"
     fi
     printf '  %-5s free (%s)\n' "$port" "$what"
 done
@@ -37,8 +37,8 @@ ensure_devnet_binaries
 step "Starting bedrock"
 ( cd "$DEVNET/state/bedrock" || exit 1
   POL_PROOF_DEV_MODE=true nohup "$DEVNET_BIN/logos-blockchain-node" \
-    "$HELLO_DIR/configs/bedrock/node-config.yaml" \
-    --deployment "$HELLO_DIR/configs/bedrock/deployment-settings.yaml" \
+    "$HELLO_DIR/devnet/configs/bedrock/node-config.yaml" \
+    --deployment "$HELLO_DIR/devnet/configs/bedrock/deployment-settings.yaml" \
     < /dev/null > "$LOGS/bedrock.log" 2>&1 &
   echo "  pid $!" )
 for i in $(seq 1 30); do
@@ -49,7 +49,7 @@ done
 echo "  answering on 18080"
 
 # The wallet reads its config from its home directory.
-cp -f "$HELLO_DIR/configs/wallet/wallet_config.json" "$LEE_WALLET_HOME_DIR/"
+cp -f "$HELLO_DIR/devnet/configs/wallet/wallet_config.json" "$LEE_WALLET_HOME_DIR/"
 
 # Each service puts its RocksDB in the working directory, so each gets its own state dir.
 # Run two from one directory and the second dies on the first's lock.
@@ -60,7 +60,7 @@ cp -f "$HELLO_DIR/configs/wallet/wallet_config.json" "$LEE_WALLET_HOME_DIR/"
 step "Starting indexer"
 ( cd "$DEVNET/state/indexer" || exit 1
   RUST_LOG=info nohup env "${DEV_MODE_ENV[@]}" \
-    "$DEVNET_BIN/indexer_service" "$HELLO_DIR/configs/indexer_config.json" \
+    "$DEVNET_BIN/indexer_service" "$HELLO_DIR/devnet/configs/indexer_config.json" \
     < /dev/null > "$LOGS/indexer.log" 2>&1 &
   echo "  pid $!" )
 
@@ -70,7 +70,7 @@ step "Starting sequencer"
 SEQ_HOME="$DEVNET/state/sequencer"
 if [ ! -f "$SEQ_HOME/sequencer_config.json" ]; then
     "$DEVNET_BIN/sequencer_service" setup "$SEQ_HOME" \
-        --config "$HELLO_DIR/configs/sequencer_network.json" \
+        --config "$HELLO_DIR/devnet/configs/sequencer_network.json" \
         --funding-public-key "$BEDROCK_FUNDING_PUBLIC_KEY" --create-channel \
         > "$LOGS/sequencer-setup.log" 2>&1 \
         || { cat "$LOGS/sequencer-setup.log" >&2; die "sequencer setup failed"; }
@@ -91,7 +91,7 @@ for i in $(seq 1 30); do
     if grep -q "All looks good" <<<"$health"; then
         printf '  healthy after %ds\n\n' $((i * 10))
         echo "Devnet up. Logs in $LOGS"
-        echo "Next: ./scripts/run.sh"
+        echo "Next: ./devnet/run.sh"
         exit 0
     fi
     printf '%s\n--- attempt %d ---\n%s\n' "$(date -u +%H:%M:%S)" "$i" "$health" >> "$LOGS/health.log"

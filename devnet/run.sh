@@ -5,7 +5,7 @@
 #   committee handoffs to a finality update -> public attestation -> private attestation
 #   -> negative attestations, which must fail
 #
-# Run ./scripts/up.sh first. Every charge is a FEE line, every proven step a TIME line, and
+# Run ./devnet/up.sh first. Every charge is a FEE line, every proven step a TIME line, and
 # every transaction's outcome a STATUS line, all kept in .devnet/logs/fees.log. DEV_MODE=0, for
 # up.sh too, proves for real. After each private step, PUBLISHED lines list what its transaction
 # made public, and the script fails unless its PRIVACY line passes: no private account, payer

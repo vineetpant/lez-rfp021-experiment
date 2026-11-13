@@ -22,8 +22,8 @@ if [ "${1:-}" = --reset ]; then
     rm -f "$LEE_WALLET_HOME_DIR/storage.json" "$LEE_WALLET_HOME_DIR/statistics.json"
     echo "  removed .devnet/state, .devnet/logs and the wallet store"
     echo
-    echo "Clean. Next: ./scripts/up.sh"
+    echo "Clean. Next: ./devnet/up.sh"
 else
     echo
-    echo "Devnet stopped. State kept - run ./scripts/down.sh --reset to wipe it."
+    echo "Devnet stopped. State kept - run ./devnet/down.sh --reset to wipe it."
 fi
