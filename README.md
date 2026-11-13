@@ -105,13 +105,12 @@ block's receipts. The same data drives both:
 
 - **the native tests**: the program's code against Helios, the attack cases, claims, history
   proofs (`tests/data/history`) and the cycle costs;
-- **the devnet run** (`devnet/run.sh`): deploy, Init, every update proven and submitted, public
-  and private attestations, and broken attestations, each of which must be refused.
+- **the devnet runs** above: deploy, Init, every update proven and submitted, public and
+  private attestations, and broken attestations, each of which must be refused.
 
 The program refuses an update more than 14 days past its store, the freshness bound that the
-sequencer's clock enforces. So `run.sh` on this data works until about **20 Nov 2026**; after
-that the devnet needs fresh data, which the operator daemon will fetch. The native tests don't
-depend on the clock and keep passing.
+sequencer's clock enforces, so a devnet run on this data works until about **20 Nov 2026**. The
+native tests don't depend on the clock and keep passing.
 
 ## Run it
 
@@ -128,18 +127,10 @@ DOCKER_DEFAULT_PLATFORM=linux/amd64 RISC0_DOCKER_CONTAINER_TAG=r0.1.97.0 \
     cargo risczero build --manifest-path crates/program/Cargo.toml
 ```
 
-On a local LEZ devnet (Bedrock, the sequencer and the indexer, all pinned to `v0.4.0-rc1`):
-
-```bash
-./devnet/up.sh              # start the devnet
-./devnet/run.sh             # the whole flow on recorded mainnet, ending in PASS
-./devnet/down.sh            # stop it, keeping its state
-./devnet/down.sh --reset    # stop it and wipe it back to genesis
-```
-
-By default every proof is faked (`DEV_MODE=1`): the run takes minutes and the fees are the
-same. `DEV_MODE=0` for both scripts proves for real, about half an hour per update on a laptop;
-keep the machine awake and otherwise idle for timed runs.
+The scripts and configs for the local LEZ devnet (Bedrock, the sequencer and the indexer, all
+pinned to `v0.4.0-rc1`) that produced the node figures are in
+[`devnet/` at commit `79b183a`](https://github.com/vineetpant/lez-rfp021-experiment/tree/79b183a/devnet),
+where they last ran end to end, ending in PASS. `git checkout 79b183a -- devnet` brings them back.
 
 ## Layout
 
@@ -149,7 +140,6 @@ keep the machine awake and otherwise idle for timed runs.
 | `crates/program/` | the `eth_lc` program, with RISC Zero's accelerated `blst`, SHA-256 and Keccak |
 | `src/` | the operator and consumer client used on the devnet, and reading recorded chain data |
 | `tests/` | the native tests, and the recorded mainnet in `tests/data/` |
-| `devnet/` | the local LEZ node: scripts, configs, and the end-to-end run ([`devnet/README.md`](devnet/README.md)) |
 
 ## Built on
 
