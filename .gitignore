@@ -1,8 +1,8 @@
 /target
-/program/target
+/crates/program/target
 /.devnet
 target-types/
-program/target/
+crates/program/target/
 target
 target-tests/
 

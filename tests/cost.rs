@@ -1,6 +1,6 @@
 //! What each public message costs, run through the deployed program's ELF in RISC Zero's
 //! executor with the per-transaction cap, as the sequencer meters it. Needs the guest built
-//! (`program/target/riscv32im-risc0-zkvm-elf/docker/eth_lc.bin`).
+//! (`crates/program/target/riscv32im-risc0-zkvm-elf/docker/eth_lc.bin`).
 //!
 //!   cargo test --release --test cost -- --nocapture
 
@@ -17,7 +17,7 @@ const CAP: u64 = 10_000_000;
 const PROBE: u64 = 200_000_000;
 
 fn elf() -> Vec<u8> {
-    std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/program/target/riscv32im-risc0-zkvm-elf/docker/eth_lc.bin")).expect("build the guest first")
+    std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/crates/program/target/riscv32im-risc0-zkvm-elf/docker/eth_lc.bin")).expect("build the guest first")
 }
 
 fn run(message: &LcMsg) -> Result<u64, String> {

@@ -26,11 +26,11 @@ send a claim:               ──────────▶  check the proofs 
   CheckRecord is published)
 ```
 
-1. **The light-client check** is one function, `core::update` (`types/src/core.rs`): the
+1. **The light-client check** is one function, `core::update` (`crates/types/src/core.rs`): the
    consensus specs' sync protocol and its store, with the BLS signature checked by `blst`.
    It is the verifying half of a light client; fetching is the operator's, and untrusted.
 2. **The operator proves it privately** and submits the proof. The sequencer verifies it
-   without re-running the BLS check (`Update` in `program/src/bin/eth_lc.rs`).
+   without re-running the BLS check (`Update` in `crates/program/src/bin/eth_lc.rs`).
 3. **The instance advances**, and the finalised header is written once to its own account,
    derived from the instance and the execution block number (`Advance`, `WriteRecord`).
 4. **A consumer sends a claim**: facts, each a Merkle-Patricia proof against a finalised header
@@ -125,7 +125,7 @@ toolchain: `curl -L https://risczero.com/install | bash && rzup install`):
 
 ```bash
 DOCKER_DEFAULT_PLATFORM=linux/amd64 RISC0_DOCKER_CONTAINER_TAG=r0.1.97.0 \
-    cargo risczero build --manifest-path program/Cargo.toml
+    cargo risczero build --manifest-path crates/program/Cargo.toml
 ```
 
 On a local LEZ devnet (Bedrock, the sequencer and the indexer, all pinned to `v0.4.0-rc1`):
@@ -145,8 +145,8 @@ keep the machine awake and otherwise idle for timed runs.
 
 | Path | What |
 |---|---|
-| `types/` | the program's messages, state and checks: `core` (the verifier), `statement` (claims), `mpt` (Merkle-Patricia proofs), `history` (older blocks), `oracle` (Helios, tests only) |
-| `program/` | the `eth_lc` program, with RISC Zero's accelerated `blst`, SHA-256 and Keccak |
+| `crates/types/` | the program's messages, state and checks: `core` (the verifier), `statement` (claims), `mpt` (Merkle-Patricia proofs), `history` (older blocks), `oracle` (Helios, tests only) |
+| `crates/program/` | the `eth_lc` program, with RISC Zero's accelerated `blst`, SHA-256 and Keccak |
 | `src/` | the operator and consumer client used on the devnet, and reading recorded chain data |
 | `tests/` | the native tests, and the recorded mainnet in `tests/data/` |
 | `scripts/`, `configs/` | the devnet, and the end-to-end run |

@@ -17,9 +17,9 @@ program_loader_core = { git = "https://github.com/logos-blockchain/logos-executi
 common = { git = "https://github.com/logos-blockchain/logos-execution-zone.git", tag = "v0.4.0-rc1" }
 sequencer_service_rpc = { git = "https://github.com/logos-blockchain/logos-execution-zone.git", tag = "v0.4.0-rc1", features = ["client"] }
 
-# The light-client program's messages, state and checks (types), and Helios's types, which
+# The light-client program's messages, state and checks (crates/types), and Helios's types, which
 # the client decodes Beacon API JSON into.
-eth-lc-types = { path = "types", features = ["helios"] }
+eth-lc-types = { path = "crates/types", features = ["helios"] }
 helios-consensus-core = { git = "https://github.com/a16z/helios", rev = "2af9b41887e069144ee56cd710f3ddca195473f8" }
 serde_json = "1"
 alloy-primitives = "1.7"

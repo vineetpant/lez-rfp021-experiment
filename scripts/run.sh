@@ -98,14 +98,14 @@ expect() {
 
 step "Building the light-client program and its client"
 cargo build --release --bin eth_lc
-LC_BIN=program/target/riscv32im-risc0-zkvm-elf/docker/eth_lc.bin
+LC_BIN=crates/program/target/riscv32im-risc0-zkvm-elf/docker/eth_lc.bin
 # Always rebuilt: a stale program deployed from a previous build fails on the first message the
 # client changed. The build is reproducible, so an unchanged source gives the same image.
 docker info >/dev/null 2>&1 || die "Docker is not running; the guest builds in a container"
-[ -f program/Cargo.lock ] || cargo generate-lockfile --manifest-path program/Cargo.toml
+[ -f crates/program/Cargo.lock ] || cargo generate-lockfile --manifest-path crates/program/Cargo.toml
 # Helios's dependencies need rustc 1.94 or later; the 1.97 builder ships amd64 only.
 DOCKER_DEFAULT_PLATFORM=linux/amd64 RISC0_DOCKER_CONTAINER_TAG="$LC_BUILDER_TAG" \
-    cargo risczero build --manifest-path program/Cargo.toml > "$LOGS/lc-guest-build.log" 2>&1 \
+    cargo risczero build --manifest-path crates/program/Cargo.toml > "$LOGS/lc-guest-build.log" 2>&1 \
     || { tail -20 "$LOGS/lc-guest-build.log" >&2; die "the light-client program didn't build"; }
 { grep -m1 "ImageID" "$LOGS/lc-guest-build.log" | sed 's/^/  /'; } || true
 echo "  $LC_BIN"
