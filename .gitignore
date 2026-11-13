@@ -1,6 +1,5 @@
 /target
 /crates/program/target
-/.devnet
 target-types/
 crates/program/target/
 target
