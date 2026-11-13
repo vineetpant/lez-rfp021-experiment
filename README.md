@@ -2,9 +2,7 @@
 
 A LEZ program, `eth_lc`, that follows finalised Ethereum through the sync committee and lets
 other LEZ programs prove facts about Ethereum (a storage slot, an account, an event log) in
-their own transaction, publicly or privately. It is the working prototype behind our
-[RFP-021](https://github.com/logos-co/rfp) proposal, **Caisson**
-(<https://claude.ai/artifact/NEstvDGmVwQC6zGXgWzpNS>), on LEZ `v0.4.0-rc1`.
+their own transaction, publicly or privately.
 
 ## How it fits together
 
