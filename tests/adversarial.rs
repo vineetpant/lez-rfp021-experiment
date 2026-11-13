@@ -26,7 +26,7 @@ fn hex(b: &[u8]) -> String {
 }
 
 fn h32(v: &Value) -> [u8; 32] {
-    lez_hello_world::chain::hex_decode(v.as_str().unwrap()).unwrap().try_into().unwrap()
+    lez_rfp021_experiment::chain::hex_decode(v.as_str().unwrap()).unwrap().try_into().unwrap()
 }
 
 /// The update's JSON, its inner object, and back.

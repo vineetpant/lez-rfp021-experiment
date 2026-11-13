@@ -7,7 +7,7 @@ use eth_lc_types::error::Refusal;
 use eth_lc_types::oracle::{self, AnyUpdate};
 use helios_consensus_core::consensus_spec::MainnetConsensusSpec as Spec;
 use helios_consensus_core::types::LightClientStore;
-use lez_hello_world::chain::{Chain, load_chain};
+use lez_rfp021_experiment::chain::{Chain, load_chain};
 
 /// Periods 1904–1906 of mainnet: a bootstrap at slot 15597568, the best update of each period
 /// (two committee handoffs), and a finality update, recorded from a beacon node.
@@ -78,7 +78,7 @@ pub fn steps(chain: &Chain) -> (Vec<Step>, core::LightClientStore) {
 use alloy_rlp::{BufMut, Encodable, Header};
 use alloy_trie::{HashBuilder, Nibbles, proof::ProofRetainer};
 use eth_lc_types::statement::Proof;
-use lez_hello_world::chain::hex_decode;
+use lez_rfp021_experiment::chain::hex_decode;
 use serde_json::Value;
 
 fn hex(v: &Value) -> Vec<u8> {

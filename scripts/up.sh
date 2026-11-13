@@ -4,7 +4,7 @@
 # Needs no logos-execution-zone checkout. Bedrock is built from its pinned commit and the
 # LEZ services are cargo-installed from the pinned tag, both into .devnet/bin.
 set -euo pipefail
-source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/env.sh"
 
 mkdir -p "$LOGS" "$DEVNET/state/bedrock" "$DEVNET/state/indexer" "$LEE_WALLET_HOME_DIR"
 
@@ -91,7 +91,7 @@ for i in $(seq 1 30); do
     if grep -q "All looks good" <<<"$health"; then
         printf '  healthy after %ds\n\n' $((i * 10))
         echo "Devnet up. Logs in $LOGS"
-        echo "Next: ./scripts/lc.sh"
+        echo "Next: ./scripts/run.sh"
         exit 0
     fi
     printf '%s\n--- attempt %d ---\n%s\n' "$(date -u +%H:%M:%S)" "$i" "$health" >> "$LOGS/health.log"

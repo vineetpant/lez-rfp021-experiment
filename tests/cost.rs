@@ -1,6 +1,6 @@
 //! What each public message costs, run through the deployed program's ELF in RISC Zero's
 //! executor with the per-transaction cap, as the sequencer meters it. Needs the guest built
-//! (`lc/guest/target/riscv32im-risc0-zkvm-elf/docker/eth_lc.bin`).
+//! (`program/target/riscv32im-risc0-zkvm-elf/docker/eth_lc.bin`).
 //!
 //!   cargo test --release --test cost -- --nocapture
 
@@ -17,7 +17,7 @@ const CAP: u64 = 10_000_000;
 const PROBE: u64 = 200_000_000;
 
 fn elf() -> Vec<u8> {
-    std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/lc/guest/target/riscv32im-risc0-zkvm-elf/docker/eth_lc.bin")).expect("build the guest first")
+    std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/program/target/riscv32im-risc0-zkvm-elf/docker/eth_lc.bin")).expect("build the guest first")
 }
 
 fn run(message: &LcMsg) -> Result<u64, String> {
@@ -98,7 +98,7 @@ fn attest(claim: eth_lc_types::statement::Claim) -> (u64, usize) {
 #[test]
 fn attest_cycles() {
     use eth_lc_types::statement::{Claim, Condition, Fact, Op, Proof, Subject};
-    let weth = lez_hello_world::chain::storage_proof(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/data/mainnet-1904/getproof-26376237.json")).unwrap();
+    let weth = lez_rfp021_experiment::chain::storage_proof(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/data/mainnet-1904/getproof-26376237.json")).unwrap();
     let Proof::Storage { address, account, account_proof, .. } = weth.clone() else { unreachable!() };
     let (_, receipt) = support::receipt_proof(2);
     let nonzero = |subject| vec![Condition { subject, op: Op::NotEqual, rhs: [0; 32] }];
@@ -139,7 +139,7 @@ fn handoff_cycles() {
 #[test]
 fn condition_cycles() {
     use eth_lc_types::statement::{Claim, Condition, Fact, Op, Subject};
-    let weth = lez_hello_world::chain::storage_proof(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/data/mainnet-1904/getproof-26376237.json")).unwrap();
+    let weth = lez_rfp021_experiment::chain::storage_proof(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/data/mainnet-1904/getproof-26376237.json")).unwrap();
     let condition = Condition { subject: Subject::StorageValue { offset: 0, width: 32 }, op: Op::NotEqual, rhs: [0; 32] };
     let run = |n: usize| attest(Claim { chain_id: 1, facts: vec![Fact { proof: weth.clone(), conditions: vec![condition.clone(); n] }] });
     let ((one, one_b), (five, five_b)) = (run(1), run(5));

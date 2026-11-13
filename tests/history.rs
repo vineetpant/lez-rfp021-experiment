@@ -11,7 +11,7 @@ use eth_lc_types::mpt::EthAccount;
 use eth_lc_types::statement::Proof;
 use eth_lc_types::{ChainBinding, FinalisedHeader};
 use lee_core::account::AccountId;
-use lez_hello_world::chain::hex_decode;
+use lez_rfp021_experiment::chain::hex_decode;
 use serde_json::Value;
 
 const TARGET: u64 = 26_352_344;

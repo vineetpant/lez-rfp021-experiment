@@ -27,7 +27,7 @@
 # .devnet/lc-last. With real proofs each update takes over half an hour, so a failure after
 # one needn't cost it again.
 set -euo pipefail
-source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/env.sh"
 cd "$HELLO_DIR"
 
 CHAIN="$HELLO_DIR/tests/data/mainnet-1904"
@@ -98,14 +98,14 @@ expect() {
 
 step "Building the light-client program and its client"
 cargo build --release --bin eth_lc
-LC_BIN=lc/guest/target/riscv32im-risc0-zkvm-elf/docker/eth_lc.bin
+LC_BIN=program/target/riscv32im-risc0-zkvm-elf/docker/eth_lc.bin
 # Always rebuilt: a stale program deployed from a previous build fails on the first message the
 # client changed. The build is reproducible, so an unchanged source gives the same image.
 docker info >/dev/null 2>&1 || die "Docker is not running; the guest builds in a container"
-[ -f lc/guest/Cargo.lock ] || cargo generate-lockfile --manifest-path lc/guest/Cargo.toml
+[ -f program/Cargo.lock ] || cargo generate-lockfile --manifest-path program/Cargo.toml
 # Helios's dependencies need rustc 1.94 or later; the 1.97 builder ships amd64 only.
 DOCKER_DEFAULT_PLATFORM=linux/amd64 RISC0_DOCKER_CONTAINER_TAG="$LC_BUILDER_TAG" \
-    cargo risczero build --manifest-path lc/guest/Cargo.toml > "$LOGS/lc-guest-build.log" 2>&1 \
+    cargo risczero build --manifest-path program/Cargo.toml > "$LOGS/lc-guest-build.log" 2>&1 \
     || { tail -20 "$LOGS/lc-guest-build.log" >&2; die "the light-client program didn't build"; }
 { grep -m1 "ImageID" "$LOGS/lc-guest-build.log" | sed 's/^/  /'; } || true
 echo "  $LC_BIN"

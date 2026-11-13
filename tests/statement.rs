@@ -13,7 +13,7 @@ use eth_lc_types::FinalisedHeader;
 use eth_lc_types::error::Refusal;
 use eth_lc_types::statement::{Claim, Class, Condition, Fact, Op, Proof, Subject, check};
 use lee_core::account::AccountId;
-use lez_hello_world::chain::storage_proof;
+use lez_rfp021_experiment::chain::storage_proof;
 use support::{encode_receipt, mainnet, receipt_proof, rlp, steps};
 
 const INSTANCE: AccountId = AccountId::new([7; 32]);

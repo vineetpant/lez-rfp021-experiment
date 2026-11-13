@@ -34,12 +34,8 @@
 //! when it isn't, and `unheld-record` (private only) proves against a header the instance
 //! doesn't hold.
 //!
-//! Three cases attest to a block older than the latest record, the one `getproof-<n>.json`
-//! is at: `history` reaches it through the EIP-2935 history contract, `history-chain` through
-//! the parent-hash chain of headers, and `history-forged`, which must fail, through EIP-2935
-//! with one byte of the target's header changed. They read the history proof
-//! (`history-<anchor>-<target>.json`) and the headers (`header-<n>.rlp`) from the same
-//! directory. Each attestation prints an `ATTEST` line with its outcome:
+//! Attestations to older blocks (EIP-2935, a parent-hash chain) are tested natively
+//! (`tests/history.rs`). Each attestation prints an `ATTEST` line with its outcome:
 //!
 //! - `accepted`: included and not reverted, the only outcome that means the statement holds;
 //! - `reverted`: included and charged, but its effects undone because a check failed;
@@ -53,7 +49,6 @@
 use std::{collections::BTreeMap, time::Instant};
 
 use common::transaction::LeeTransaction;
-use eth_lc_types::history::{Ancestry, history_slot, target_header};
 use eth_lc_types::statement::{self, Claim, Condition, Fact, Op, Proof, Subject};
 use eth_lc_types::oracle::{self, AnyUpdate};
 use eth_lc_types::{FinalisedHeader, Instance, LcMsg, LightClientStore, core, finalised_header, header_account, header_seed};
@@ -61,8 +56,8 @@ use lee::{
     AccountId, Actor, BoundaryStep, native_token,
     privacy_preserving_transaction::circuit::ProgramCatalog, program::Program,
 };
-use lez_hello_world::chain::{Chain, hex32, hex_decode, load_chain, storage_proof};
-use lez_hello_world::{deploy_program, fees, follow_private_tx};
+use lez_rfp021_experiment::chain::{Chain, load_chain, storage_proof};
+use lez_rfp021_experiment::{deploy_program, fees, follow_private_tx};
 use sequencer_service_rpc::{RpcClient as _, SequencerClient};
 use wallet::{AccountIdentity, AccountMention, WalletCore};
 
@@ -185,7 +180,7 @@ fn storage_claim(getproof: &str, case: &str) -> anyhow::Result<Claim> {
     let mut proof = storage_proof(&abs(getproof)?)?;
     let mut op = Op::Greater;
     match case {
-        "honest" | "unheld-record" | "history" | "history-chain" | "history-forged" => {}
+        "honest" | "unheld-record" => {}
         "tampered-proof" => {
             // The leaf's hash no longer matches its parent's reference to it.
             let Proof::Storage { storage_proof, .. } = &mut proof else { unreachable!("eth_getProof gives a storage proof") };
@@ -326,65 +321,7 @@ fn query_secrets(claim: &Claim) -> Vec<(String, Vec<u8>)> {
 
 /// The cases that must be refused.
 fn is_negative(case: &str) -> bool {
-    matches!(case, "tampered-proof" | "false-claim" | "unheld-record" | "history-forged")
-}
-
-/// Block `n`'s header RLP from `dir`, checked to hash to the block hash the node reported, so a
-/// wrong encoding fails here rather than in a proof.
-fn header_rlp(dir: &str, n: u64) -> anyhow::Result<Vec<u8>> {
-    let rlp = hex_decode(&std::fs::read_to_string(format!("{dir}/header-{n}.rlp"))?)?;
-    let j: serde_json::Value = serde_json::from_slice(&std::fs::read(format!("{dir}/header-{n}.json"))?)?;
-    let hash = hex32(&j["result"]["hash"])?;
-    anyhow::ensure!(alloy_primitives::keccak256(&rlp).0 == hash, "header {n}'s RLP doesn't hash to its block hash");
-    Ok(rlp)
-}
-
-/// How a history case reaches the block `getproof` is at from `anchor`, or `None` for an
-/// attestation against the anchor itself.
-fn ancestry(getproof: &str, anchor: &FinalisedHeader, case: &str) -> anyhow::Result<Option<Ancestry>> {
-    if !case.starts_with("history") {
-        return Ok(None);
-    }
-    let path = abs(getproof)?;
-    let dir = path.rsplit_once('/').map_or(".", |(d, _)| d).to_owned();
-    let target: u64 = path
-        .rsplit_once("getproof-")
-        .and_then(|(_, f)| f.strip_suffix(".json"))
-        .ok_or_else(|| anyhow::anyhow!("{getproof} isn't a getproof-<block>.json"))?
-        .parse()?;
-    let r = anchor.block_number;
-    Ok(Some(match case {
-        "history-chain" => Ancestry::ParentChain { headers: (target..=r).rev().map(|n| header_rlp(&dir, n)).collect::<Result<_, _>>()? },
-        _ => {
-            let mut header = header_rlp(&dir, target)?;
-            if case == "history-forged" {
-                // The real hash is in the history contract; this header no longer hashes to it.
-                *header.last_mut().expect("a header") ^= 1;
-            }
-            let mut proof = storage_proof(&format!("{dir}/history-{r}-{target}.json"))?;
-            // The slot is the target's by construction; nodes return the key shortened anyway.
-            if let Proof::Storage { slot, .. } = &mut proof {
-                *slot = history_slot(target);
-            }
-            Ancestry::Eip2935 { proof, header }
-        }
-    }))
-}
-
-/// What the publication check must not find for a history case: the target's header and the
-/// history contract's slot for it.
-fn ancestry_secrets(ancestry: &Option<Ancestry>) -> Vec<(String, Vec<u8>)> {
-    match ancestry {
-        Some(Ancestry::Eip2935 { proof, header }) => {
-            let mut out = vec![("target header".to_owned(), header.clone())];
-            if let Proof::Storage { slot, .. } = proof {
-                out.push(("history slot".to_owned(), slot.to_vec()));
-            }
-            out
-        }
-        Some(Ancestry::ParentChain { headers }) => headers.last().map(|h| vec![("target header".to_owned(), h.clone())]).unwrap_or_default(),
-        None => vec![],
-    }
+    matches!(case, "tampered-proof" | "false-claim" | "unheld-record")
 }
 
 #[tokio::main]
@@ -501,12 +438,7 @@ async fn main() -> anyhow::Result<()> {
             // test what the sequencer does with them.
             let block = read_instance(&client, program, instance).await?.latest.block_number;
             let held = read_header(&client, program, instance, block).await?.ok_or_else(|| anyhow::anyhow!("no header at block {block}"))?;
-            let ancestry = ancestry(getproof, &held, case)?;
-            let verdict = match &ancestry {
-                None => Ok(held.clone()),
-                Some(a) => target_header(&held, a),
-            }
-            .and_then(|target| statement::check(&instance, &target, &claim))
+            let verdict = statement::check(&instance, &held, &claim)
             .map_or_else(|e| format!("{e:?}"), |_| "holds".to_owned());
             println!("DRYRUN step=lc-attest-public case={case} verdict={verdict}");
             if verdict != "holds" && !is_negative(case) {
@@ -514,7 +446,7 @@ async fn main() -> anyhow::Result<()> {
                 return Ok(());
             }
             // `Attest` goes to the header's account itself: one read, however many headers exist.
-            let message = LcMsg::Attest { instance, claim, ancestry, reply: false };
+            let message = LcMsg::Attest { instance, claim, ancestry: None, reply: false };
             let account = header_mention(program, instance, block);
             let before = fees::snapshot(&client, payer).await?;
             // Nothing is proven locally: the sequencer runs the check. So the time is submission
@@ -544,10 +476,6 @@ async fn main() -> anyhow::Result<()> {
             let (operator, payer) = (id(arg(5)?)?, id(arg(6)?)?);
             let case = a.get(7).map_or("honest", String::as_str);
             let held = read_instance(&client, program, instance).await?;
-            let anchor = read_header(&client, program, instance, held.latest.block_number)
-                .await?
-                .ok_or_else(|| anyhow::anyhow!("no header at block {}", held.latest.block_number))?;
-            let ancestry = ancestry(getproof, &anchor, case)?;
             let mut header = held.latest;
             if case == "unheld-record" {
                 // The state root is the real one, so the proof checks out against it; only the
@@ -557,10 +485,9 @@ async fn main() -> anyhow::Result<()> {
             println!("attesting privately against block {} (slot {}), case {case}", header.block_number, header.slot);
             let claim = storage_claim(getproof, case)?;
             let mut secrets = query_secrets(&claim);
-            secrets.extend(ancestry_secrets(&ancestry));
             secrets.push(("payer".to_owned(), payer.as_ref().to_vec()));
             let block = header.block_number;
-            let message = LcMsg::AttestPrivate { instance: Actor::new(instance, program), header, claim, ancestry };
+            let message = LcMsg::AttestPrivate { instance: Actor::new(instance, program), header, claim, ancestry: None };
             let programs = ProgramCatalog::from([(program, Program::new(bytecode.into())?)]);
             let header_id = header_account(&program, &instance, block);
             let accounts = vec![

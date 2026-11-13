@@ -10,7 +10,7 @@ network. Don't use them for anything else — the keys are public and the balanc
 | `indexer_config.json` | `lez/indexer/service/configs/debug/` | points at bedrock on `localhost:18080` |
 | `wallet/wallet_config.json` | `lez/wallet/configs/debug/` | points at the sequencer on `127.0.0.1:3040` |
 
-`sequencer_config.json` also holds the genesis accounts. `scripts/common.sh` uses the first of
+`sequencer_config.json` also holds the genesis accounts. `scripts/env.sh` uses the first of
 them to pay transaction fees:
 
 ```

@@ -9,7 +9,7 @@ end. RFP-021 items: F.3–F.8, F.15, S.4, U.6, VS.2, VS.3, soft #2 and #4.
 
 | # | Step | Status | Where |
 |---|---|---|---|
-| 1 | The LEZ program implements the light-client signature check and the surrounding checks in one function | ✅ built | `core::update` (`lc/types/src/core.rs`), run by the `Update` message |
+| 1 | The LEZ program implements the light-client signature check and the surrounding checks in one function | ✅ built | `core::update` (`types/src/core.rs`), run by the `Update` message |
 | 2 | That function is proven privately on the operator's machine, which submits the transaction with the proof (the RISC Zero receipt) | ✅ built, on the node with real proofs | the operator's wallet proves `Update`; the sequencer verifies the receipt |
 | 3 | The transaction advances the finalized header, stored as a finalised header in its own program-derived account | ✅ built | `Advance`, then `WriteRecord` at `for_public_pda(eth_lc, H("header" ‖ instance ‖ block_number))` |
 | 4 | Consumers fetch from Ethereum what the predicate needs, e.g. `eth_getProof(address, slot, block)` for an ERC-20 balance (the state-trie and storage-trie paths) | ✅ storage proofs from `eth_getProof`, recorded in `tests/data`; logs from `eth_getBlockReceipts`, in the tests; live fetching is the operator daemon's and the client's (#29) | `src/chain.rs` (`storage_proof`); `tests/support` (receipt proofs); a balance slot is `keccak(holder ‖ balances_position)` |
@@ -45,7 +45,7 @@ covers the account (section 3).
 
 A claim may also carry an **ancestry**: an EIP-2935 proof or a parent-hash chain from a header
 the instance holds back to an older block, so the facts are checked under that block's roots
-(proposal section 8).
+(Caisson section 7.1).
 
 ### What `eth_lc` checks
 

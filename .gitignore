@@ -1,8 +1,8 @@
 /target
-/lc/guest/target
+/program/target
 /.devnet
 target-types/
-lc/guest/target/
+program/target/
 target
 target-tests/
 
