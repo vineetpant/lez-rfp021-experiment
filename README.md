@@ -148,4 +148,4 @@ where they last ran end to end, ending in PASS. `git checkout 79b183a -- devnet`
 
 ## Licence
 
-MIT OR Apache-2.0, at your option: [LICENSE-MIT](LICENSE-MIT), [LICENSE-APACHE](LICENSE-APACHE).
+MIT: [LICENSE](LICENSE).

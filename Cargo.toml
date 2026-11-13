@@ -2,7 +2,7 @@
 name = "lez-rfp021-experiment"
 version = "0.1.0"
 edition = "2024"
-license = "MIT OR Apache-2.0"
+license = "MIT"
 description = "An Ethereum light client and state attestation on the Logos Execution Zone"
 
 # LEZ crates, pinned to the tag this was verified against. Upstream publishes
