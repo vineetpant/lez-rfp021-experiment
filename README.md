@@ -32,13 +32,12 @@ send a claim:               ──────────▶  check the proofs 
 3. **The instance advances**, and the finalised header is written once to its own account,
    derived from the instance and the execution block number (`Advance`, `WriteRecord`).
 4. **A consumer sends a claim**: facts, each a Merkle-Patricia proof against a finalised header
-   with conditions on its values, such as `StorageValue`, `AccountBalance` or `LogDataWord`
-   (the proposal's sections 4.5–4.7).
+   with conditions on its values, such as `StorageValue`, `AccountBalance` or `LogDataWord`.
 5. **`statement::check`** verifies the proofs, evaluates the conditions and returns a statement
    with one ID per fact, from the Ethereum state alone, for the consumer's nullifier.
 
-The types are the proposal's (section 4): `InstanceConfig`, `FinalisedHeader`, `Claim`,
-`Fact`, `Condition`, `Statement`, `ProvenFact`, `Event`. The verifier is held to Helios's
+The types: `InstanceConfig`, `FinalisedHeader`, `Claim`, `Fact`, `Condition`, `Statement`,
+`ProvenFact`, `Event`. The verifier is held to Helios's
 `consensus-core` in the tests: on every recorded update and every attack case, both reach the
 same verdict and store.
 
@@ -76,7 +75,7 @@ default segment size, base fees at the floor of 8):
 
 The devnet was reset before the run and the Mac kept awake; Chrome and Brave were open, and a
 first run gave update times within 2 minutes. Re-run on 11 Nov on the program with the
-proposal's data model (proofs faked, fees the same): public attestation 301,509 exec gas and
+current data model (proofs faked, fees the same): public attestation 301,509 exec gas and
 7,520 B; private attestation 22,650 public cycles; an update's public part 4–9k cycles more,
 for the header and handoff events. Every privacy check passed and every broken attestation was
 refused, in both runs.
