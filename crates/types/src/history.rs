@@ -1,4 +1,4 @@
-//! Attesting to a block older than the record it is proven from (proposal section 8).
+//! Attesting to a block older than the record it is proven from (proposal section 7.1).
 //!
 //! A record anchors one finalized block. [`target_record`] derives, from it, the execution roots
 //! of an earlier block, so an attestation can be proven against that block without the instance

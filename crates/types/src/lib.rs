@@ -118,7 +118,7 @@ pub struct FinalisedHeader {
     pub slot: u64,
     pub beacon_root: Root,
     pub block_number: u64,
-    /// Where history proofs start (proposal section 8).
+    /// Where history proofs start (proposal section 7.1).
     pub block_hash: Root,
     pub state_root: Root,
     pub receipts_root: Root,

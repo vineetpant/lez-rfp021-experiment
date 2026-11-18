@@ -1,4 +1,4 @@
-//! Attesting to an older block (proposal section 8), natively, on mainnet data pinned in
+//! Attesting to an older block (proposal section 7.1), natively, on mainnet data pinned in
 //! `tests/data/history`: blocks 26352344–26352347 and 26352394, and the EIP-2935 history
 //! contract's slot for 26352344 proven at 26352394, recorded from an execution node
 //! (`eth_getBlockByNumber`, `eth_getProof`).
