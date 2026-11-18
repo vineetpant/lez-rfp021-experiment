@@ -12,7 +12,7 @@ Congruence Labs
 
 ### Primary Contact
 
-TODO (team): email, Telegram, Discord or Signal
+Signal: sufialhussaini.17
 
 ### Team Members
 
@@ -20,25 +20,25 @@ Member 1
 Name or pseudonym: Chirag Mahaveer Parmar
 Social links: https://github.com/chirag-parmar
 Role: TODO (team)
-Status: TODO (team)
+Status: Contractor
 
 Member 2
 Name or pseudonym: Shoaib Ahmed
 Social links: https://github.com/hu55a1n1
 Role: TODO (team)
-Status: TODO (team)
+Status: Contractor
 
 Member 3
 Name or pseudonym: Vineet Pant
 Social links: https://github.com/vineetpant
 Role: TODO (team)
-Status: TODO (team)
+Status: Contractor
 
 Member 4
 Name or pseudonym: Manas Nagaraj
 Social links: https://github.com/hopinheimer
 Role: TODO (team)
-Status: TODO (team)
+Status: Contractor
 
 ### Project Summary
 
@@ -443,7 +443,7 @@ Each row names where the design meets the requirement, the test that will show i
 
 ### Milestones, Payout and Timeline
 
-The build totals about 17 weeks, inside the RFP's 16–20, plus the audit. The audit is TODO (team): within this budget, or procured separately. Shared work with our RFP-021 proposal, if both are funded, is delivered once and deducted from this one: TODO (team).
+The build totals about 17 weeks, inside the RFP's 16–20, plus the audit. The external audit is procured and paid by Logos after M4, and is not included in the requested total. Shared work with our RFP-021 proposal, if both are funded, is delivered once and deducted from this one: TODO (team).
 
 **Milestone 0: Feasibility and decisions**
 Payout: TODO
@@ -472,7 +472,7 @@ Deliverables: core module, mini-app and admin UI; relayer, fuel-operator, signer
 
 **Milestone 5: Audit**
 Payout: TODO
-Duration: TODO
+Duration: 1 week after the audit report
 Deliverables: third-party audit of the vault and the bridge program, remediation of findings, published report.
 
 ### Total Requested Budget (USD)
@@ -490,13 +490,17 @@ TODO (team): any Solidity and audit-preparation experience, for the vault.
 
 ### Post-Delivery Plan
 
-TODO (team): owner and durations. Proposed shape:
+Maintained by Congruence Labs for 12 months after M4.
 
-- **Security reports:** first response within TODO business days; for high severity, a fix or a published mitigation within TODO days, shipped as a new version with migration notes, since verification is immutable.
-- **LEZ releases:** benchmarks and the e2e suite re-run on each LEZ tag within TODO weeks; a migration plan before any change the deployed version can't follow.
-- **Ethereum forks:** tracked through Caisson; bridge-side changes published TODO weeks before activation.
-- **Testnet services for TODO months:** a relayer, a fuel operator, a batch prover and, under path (a), an attestor, each with a public uptime log.
+At no extra cost:
+
+- **Security reports:** acknowledged within 48 hours, with a fix or a published mitigation, shipped as a new version with migration notes, since verification is immutable.
+- **LEZ releases:** rebuilt and redeployed on each testnet release, with the benchmarks and the e2e suite re-run; a migration plan before any change the deployed version can't follow.
+- **Ethereum forks:** tracked through Caisson; bridge-side changes published before activation.
+- **Testnet services for the 12 months:** a relayer, a fuel operator, a batch prover and, under path (a), an attestor, each with a public uptime log.
 - **Integrations:** answers to the DEX, lending and stablecoin teams that consume wrapped assets.
+
+**Monthly recurring cost, if opted in to run the relayer, fuel operator, batch prover and attestor:** $1,200 a month, sized for testnet traffic; proving capacity beyond that is added at cost.
 
 ### Permissions and Consent
 
