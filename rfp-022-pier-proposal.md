@@ -439,7 +439,7 @@ Each row names where the design meets the requirement, the test that will show i
 
 ### Milestones, Payout and Timeline
 
-The build totals about 17 weeks, inside the RFP's 16–20, plus the audit. The external audit is procured and paid by Logos after M4, and is not included in the requested total.
+The build totals about 17 weeks, inside the RFP's 16–20, plus the audit. The external audit of the vault, the bridge program and the test plan is estimated at $40,000, paid by Logos after M4, and is not included in the requested total.
 
 **Milestone 0: Feasibility and decisions**
 Payout: $3,000
