@@ -497,10 +497,9 @@ At no extra cost:
 - **Security reports:** acknowledged within 48 hours, with a fix or a published mitigation, shipped as a new version with migration notes, since verification is immutable.
 - **LEZ releases:** rebuilt and redeployed on each testnet release, with the benchmarks and the e2e suite re-run; a migration plan before any change the deployed version can't follow.
 - **Ethereum forks:** tracked through Caisson; bridge-side changes published before activation.
-- **Testnet services for the 12 months:** a relayer, a fuel operator, a batch prover and, under path (a), an attestor, each with a public uptime log.
 - **Integrations:** answers to the DEX, lending and stablecoin teams that consume wrapped assets.
 
-**Monthly recurring cost, if opted in to run the relayer, fuel operator, batch prover and attestor:** $1,200 a month, sized for testnet traffic; proving capacity beyond that is added at cost.
+**Monthly recurring cost, if opted in to run the testnet services (a relayer, a fuel operator, a batch prover and, under path (a), an attestor, each with a public uptime log):** $1,200 a month, sized for testnet traffic; proving capacity beyond that is added at cost.
 
 ### Permissions and Consent
 
