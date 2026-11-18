@@ -42,7 +42,7 @@ Status: TODO (team)
 
 ### Project Summary
 
-A pier is the column a bridge stands on. It rises from the caisson sunk in the riverbed and carries the span across. **Pier** is the bridge that stands on **Caisson**, our RFP-021 attestation primitive, and carries ERC-20s and native ETH between Ethereum and LEZ in both directions. This proposal stands on its own and is priced separately from Caisson. All code will be released under the MIT and Apache-2.0 licences.
+A pier is the column a bridge stands on. It rises from the caisson sunk in the riverbed and carries the span across. **Pier** is the bridge that stands on **Caisson**, our RFP-021 attestation primitive, and carries ERC-20s and native ETH between Ethereum and LEZ in both directions. All code will be released under the MIT and Apache-2.0 licences.
 
 An immutable Ethereum vault escrows deposits in fixed denominations. A LEZ bridge program mints the wrapped token, backed one to one, once a claim proves the deposit through Caisson against finalised Ethereum. Burning on LEZ entitles the holder to release the original from the vault. Neither leg names the other chain's destination, and nothing but amount, token and timing links a deposit to its mint or a burn to its release.
 
@@ -50,7 +50,7 @@ An immutable Ethereum vault escrows deposits in fixed denominations. A LEZ bridg
 - **Inbound rests on Caisson.** The vault writes each deposit's commitment once, to its own storage slot. A claim proves that slot privately as a Caisson Storage fact and keys its nullifier on the fact's statement ID, blinded with a random value.
 - **The user never builds a proof for Ethereum.** On the way back, a private Redeem on LEZ breaks the link between a burn and its ticket, so what reaches Ethereum carries no secret, anyone can prove it, and one Groth16 check covers a whole batch of releases.
 - **Accountable signers.** LEZ v0.4 has no state root and no validity proof, so the outbound leg needs signers; we propose LEZ's own sequencer threshold, the trust Bedrock already uses for withdrawals. Every signer posts a bond, a false state is provable on LEZ and burns it, and one honest signer can veto a false state on Ethereum during a candidate window.
-- **Correct on LEZ v0.4.** A private transaction pays its own gas, from the prover's account. A deposit can optionally buy fuel: native LEZ delivered by any operator and repaid from ETH already escrowed.
+- **Gas for first-time users.** A private transaction pays its own gas, from the prover's account. A deposit can optionally buy fuel: native LEZ delivered by any operator and repaid from ETH already escrowed.
 - **A failsafe that needs no admin**, scoped to what a fault stranded, and still working if the fault is in Caisson.
 - **Private by default, public when chosen.** A fully public path in both directions needs no proving at all. On the private path, one action per direction starts a background job, and proving runs during finality and privacy waits that are longer than it.
 
@@ -62,7 +62,7 @@ Requirement IDs refer to RFP-022 (F, U, R, P, S, Sec, Priv, Soft). Figures are t
 
 #### 0. Where RFP-022 and LEZ v0.4 meet a gap
 
-RFP-022 asks the vault to release on cryptographic verification of a LEZ burn, with no trusted signers or federations. LEZ v0.4, checked in its source, has no state root in its block header (`lez/common/src/block.rs`: block id, previous hash, timestamp and a hash of the whole block) and no validity proof of its blocks. Bedrock relies on the zone's sequencer threshold for withdrawals from a zone (`ChannelWithdraw`; two thirds of the `sequencer_stake` committee). Verifying Bedrock's leadership proofs on Ethereum would also need an epoch nonce and two ledger roots that no header carries (`zk/proofs/pol/src/inputs.rs`). So the outbound leg depends on a choice about how Ethereum learns LEZ state. The same question arises for RFP-023 (draft), which inherits RFP-022's approach, so a platform-level answer would serve both bridges and any future zone-to-Ethereum flow.
+RFP-022 asks the vault to release on cryptographic verification of a LEZ burn, with no trusted signers or federations. LEZ v0.4, checked in its source, has no state root in its block header (`lez/common/src/block.rs`: block id, previous hash, timestamp and a hash of the whole block) and no validity proof of its blocks. Bedrock relies on the zone's sequencer threshold for withdrawals from a zone (`ChannelWithdraw`; two thirds of the `sequencer_stake` committee). Verifying Bedrock's leadership proofs on Ethereum would also need an epoch nonce and two ledger roots that no header carries (`zk/proofs/pol/src/inputs.rs`). So the outbound leg depends on a choice about how Ethereum learns LEZ state. The same question arises for RFP-023 (draft), which inherits RFP-022's approach.
 
 - **What we propose.** LEZ's own sequencer threshold signs the bridge state: the trust Bedrock already applies to withdrawals, and so the security of the LEZ network as v0.4 defines it. We add the accountability v0.4 doesn't provide: bonds, fault proofs checked on LEZ, and a minority veto on Ethereum (§5).
 - **What we'd like to agree with Logos in M0.** (1) Whether the sequencer threshold meets F7 and the trust model on v0.4. (2) Whether sequencers would run our signing module, with a bridge bond. (3) Logos's direction on a state commitment in the LEZ header and validity proofs of LEZ blocks.
@@ -153,7 +153,7 @@ Release (Ethereum), by the user or any relayer
 - **The burn names no Ethereum destination (F5)**, and it hides who may redeem. Any account can burn; only `redeemer` can Redeem, so a burn from a public account stays unlinkable once redeemed, and learning `t` gives no power.
 - **Public option, direct ticket** (explicit override): a public burn may write `K` at once, with no Redeem and no proving. `eth_dest` stays hidden until release; the burn and the release are linked.
 - **Who proves what.** The user proves only ordinary LEZ private transactions (claim, Redeem, and a burn from a private account). The Groth16 proof Ethereum checks wraps public signatures, so anyone can make it, and one proof covers a batch. No x86-only step reaches the user's machine. Each release costs a Merkle path, about 60–90k gas estimated.
-- **The cost, stated plainly.** The private way back asks the user for one more LEZ private transaction, at LEZ's usual cost (about 15 min on a CPU laptop), in return for no secret-bearing proof on Ethereum, no x86 step for the user, and cheap releases. It runs in the background (§9). We considered unlinking at release with a small user proof wrapped by a relayer instead, and didn't choose it as the default: it sends a secret-bearing proof to Ethereum, adds a Groth16 verification to every release, and running both paths would split the outbound anonymity set.
+- **Cost.** The private way back asks the user for one more LEZ private transaction, at LEZ's usual cost (about 15 min on a CPU laptop), in return for no secret-bearing proof on Ethereum, no x86 step for the user, and cheap releases. It runs in the background (§9). We considered unlinking at release with a small user proof wrapped by a relayer instead, and didn't choose it as the default: it sends a secret-bearing proof to Ethereum, adds a Groth16 verification to every release, and running both paths would split the outbound anonymity set.
 
 #### 5. How Ethereum learns LEZ state (F7)
 
@@ -182,7 +182,7 @@ LEZ                 Fault{msg, sig, signer}            msg's state ≠ state_at[
 
 #### 6. Privacy (Priv #1–#7, F8)
 
-Pier is designed to be at least as unlinkable as the RFP requires; the linkage test of a round trip (M3) checks it on public data.
+The linkage test of a round trip (M3) checks unlinkability on public data.
 
 | Signal | Why it remains | What an observer learns | Mitigation, on by default (U5) |
 |---|---|---|---|
@@ -254,7 +254,7 @@ Declared minimum 16 GB, CPU proving; M0 measures the claim and the Redeem on a m
 
 #### 11. Dependencies
 
-- **RFP-021: Caisson**, our proposal, as the base. Pier needs from any RFP-021 primitive only a finalised storage-slot statement with a deterministic, instance-independent statement ID, private consumption that publishes only a record reference, synchronous use in one transaction, and a readable freeze; another primitive with those is consumed through one adapter. Our Caisson proposal is aligned on each.
+- **RFP-021: Caisson**, our proposal, as the base. Pier needs from any RFP-021 primitive only a finalised storage-slot statement with a deterministic, instance-independent statement ID, private consumption that publishes only a record reference, synchronous use in one transaction, and a readable freeze; another primitive with those is consumed through one adapter.
 - **RFP-001** (admin, fee switch), **RFP-002** (freeze), **LP-0013** (token authorities, ATA-compatible accounts), **LP-0012** (events), the **Logos Ethereum core module** with its verified proxy, the **wallet SDK**, **RISC Zero** with its audited Groth16 verifier.
 
 #### 12. Risks and what we ask in M0
@@ -274,7 +274,7 @@ Declared minimum 16 GB, CPU proving; M0 measures the claim and the Redeem on a m
 
 #### 13. Requirement coverage
 
-Every hard requirement has a design and a named test. In brief: F1–F2, F17 (§2); F3, F4, F12 (§3); F5–F7 (§4, §5); F8 (§2, §6); F9 (§7); F10–F16 (§1, §7); U1–U10 (§9); R1–R7 (§3, §4, §9); R8 (RISC Zero and its audited verifier; Caisson's reuse plan); R9 (§8); R10 (a round trip in CI against a standalone sequencer and a Kurtosis Ethereum devnet with a consensus layer); R11–R14 (a requirement-to-test matrix and the docs, M4); P1–P7 (§10); S1 (testnet deployment, M4); S2–S3 (§9); S4 (a decision log, opened in M0); Sec #1 (audit milestone); Sec #2–#9 (§5, §7, §8); Priv #1–#7 (§3, §6); Soft #1–#5 (§7, §9).
+Coverage: F1–F2, F17 (§2); F3, F4, F12 (§3); F5–F7 (§4, §5); F8 (§2, §6); F9 (§7); F10–F16 (§1, §7); U1–U10 (§9); R1–R7 (§3, §4, §9); R8 (RISC Zero and its audited verifier; Caisson's reuse plan); R9 (§8); R10 (a round trip in CI against a standalone sequencer and a Kurtosis Ethereum devnet with a consensus layer); R11–R14 (a requirement-to-test matrix and the docs, M4); P1–P7 (§10); S1 (testnet deployment, M4); S2–S3 (§9); S4 (a decision log, opened in M0); Sec #1 (audit milestone); Sec #2–#9 (§5, §7, §8); Priv #1–#7 (§3, §6); Soft #1–#5 (§7, §9).
 
 ### Milestones, Payout and Timeline
 
@@ -315,8 +315,6 @@ Deliverables: third-party audit of the vault and the bridge program, remediation
 TODO (team): the sum of the milestone payouts above.
 
 ### Relevant Experience
-
-The same team builds our RFP-021 proposal, Caisson, on which the inbound leg rests, so inbound verification and the bridge are designed, tested and answered for by one team.
 
 - **Chirag Mahaveer Parmar** builds the Nimbus verified proxy in nimbus-eth1, which the Logos Ethereum core module wraps: 68 merged pull requests, among them its REST-based light client, light-client scoring across endpoints, EIP-2935 anchor jumps and BLOCKHASH, Gloas updates, and its C, Go and WASM bindings. He fixed `eth_getProof` in nim-web3 and was an Ethereum Protocol Fellow (cohort five). The bridge's Ethereum side runs through that module, and its deposit proofs are `eth_getProof` storage proofs.
 - **Shoaib Ahmed** worked on Cosmos IBC at Informal Systems, where each chain verifies the other's consensus with an on-chain light client. In ibc-rs he implemented the light-client extraction (ADR 011). He was lead developer of Quartz, a TEE framework whose enclaves verify the chain through a light client, and of Cycles, with arkworks settlement circuits and nullifier derivation; he now works on Shielded Labs' Zeronym. He did the research and the experiment behind Caisson that proved a mainnet sync-committee update as one private LEZ v0.4 transaction.
