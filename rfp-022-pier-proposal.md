@@ -398,46 +398,46 @@ GPU proving cut Caisson's update proof from 1,107 s to 30 s (RTX 4090); which la
 
 #### 13. Requirement coverage
 
-Each row names where the design meets the requirement and the test that will show it. "Today" says what already holds; blank means designed in this proposal.
+Each row names where the design meets the requirement, the test that will show it, and its status today.
 
-| Requirements | Where | Test | Milestone | Today |
+| Requirements | Where | Test | Milestone | Status |
 |---|---|---|---|---|
-| F1, F17 | §2 | Deposit and release for each token type; ETH without WETH; USDT on a fork | M1 | |
-| F2, Priv #3 | §2, §6 | Full event and state diff of a round trip shows no destination | M3 | |
+| F1, F17 | §2 | Deposit and release for each token type; ETH without WETH; USDT on a fork | M1 | Designed |
+| F2, Priv #3 | §2, §6 | Full event and state diff of a round trip shows no destination | M3 | Designed |
 | F3, R3, Sec #6 | §3 | Double and racing claims refused; supply invariant | M1, M3 | Statement IDs measured on the v0.4 devnet |
 | F4, P1 | §3, §10 | Mint to a private and a public account; public claim in one transaction | M1 | Private and public storage attestations measured |
-| F5, F6 | §4 | No destination in the LEZ diff; burn from private and public; direct ticket | M2 | |
+| F5, F6 | §4 | No destination in the LEZ diff; burn from private and public; direct ticket | M2 | Designed |
 | F7 | §0, §5 | Release end to end; forged, equivocating and vetoed states refused | M2 | Open: Logos's choice of path |
-| F8, Priv #1, #2 | §2, §6 | Linkage test at chance over a round trip; set sizes reported | M3 | |
-| F9, R5, R7 | §7, §9 | Restore with no local state; a job interrupted mid-proof | M3 | |
+| F8, Priv #1, #2 | §2, §6 | Linkage test at chance over a round trip; set sizes reported | M3 | Designed |
+| F9, R5, R7 | §7, §9 | Restore with no local state; a job interrupted mid-proof | M3 | Designed |
 | F10, F11 | §7 | Register, delist and change denominations; caps roll over | M1 | Cap values from the team |
-| F12 | §3 | Raise the depth: an earlier valid claim still lands | M1 | |
-| F13 | §7 | Fee set, zeroed and routed; the ceiling holds | M1 | |
-| F14, Sec #5 | §7 | Each half paused on its own; each evidence freeze | M1, M2 | |
+| F12 | §3 | Raise the depth: an earlier valid claim still lands | M1 | Designed |
+| F13 | §7 | Fee set, zeroed and routed; the ceiling holds | M1 | Designed |
+| F14, Sec #5 | §7 | Each half paused on its own; each evidence freeze | M1, M2 | Designed |
 | F15, F16 | §1 | Cross-pairing refused; two configurations with no cross access | M1 | Chain binding measured in Caisson |
-| U1–U3, U10 | §9 | Each daemon installed from the catalog on a clean machine and run headless | M4 | |
-| U4 | §9 | SPEL IDL drift check in CI | M4 | |
-| U5–U7 | §3, §9 | UI tests of the defaults and the leak indicator | M4 | |
+| U1–U3, U10 | §9 | Each daemon installed from the catalog on a clean machine and run headless | M4 | Designed |
+| U4 | §9 | SPEL IDL drift check in CI | M4 | Designed |
+| U5–U7 | §3, §9 | UI tests of the defaults and the leak indicator | M4 | Designed |
 | U8, Priv #5 | §6, §9 | One test per error code; refused claims indistinguishable | M1, M3 | Revert visibility checked in LEZ source |
-| U9 | §9 | Switch the RPC and sequencer mid-flow | M4 | |
-| R1, R2 | §3, §4 | Failure injected at each step; nothing consumed | M1, M2 | |
+| U9 | §9 | Switch the RPC and sequencer mid-flow | M4 | Designed |
+| R1, R2 | §3, §4 | Failure injected at each step; nothing consumed | M1, M2 | Designed |
 | R4 | §3 | Claim after a long delay | M1 | Records are immutable (measured) |
-| R6, R9 | §8, §9 | Kill and restart each daemon | M4 | |
-| R8 | §5, §8 | Release verified by RISC Zero's audited Groth16 verifier, pinned | M2 | |
-| R10 | §9 | Round trip in CI against a standalone sequencer and a Kurtosis Ethereum devnet | M4 | |
-| R11–R14 | §9 | A CI test for every row here; developer, CLI, operator and deployer docs | M4 | |
+| R6, R9 | §8, §9 | Kill and restart each daemon | M4 | Designed |
+| R8 | §5, §8 | Release verified by RISC Zero's audited Groth16 verifier, pinned | M2 | Designed |
+| R10 | §9 | Round trip in CI against a standalone sequencer and a Kurtosis Ethereum devnet | M4 | Designed |
+| R11–R14 | §9 | A CI test for every row here; developer, CLI, operator and deployer docs | M4 | Designed |
 | P2–P7 | §10 | Benchmarks re-run from scripts on the final 0.4 | M0–M4 | Part measured (§10) |
 | S1 | | Deployed on a public Ethereum testnet and LEZ testnet 0.4 | M4 | Open: testnet 0.4 isn't live |
-| S2, S3 | §9 | Linux and macOS builds; the release action | M4 | |
+| S2, S3 | §9 | Linux and macOS builds; the release action | M4 | Designed |
 | S4 | below | Decision log | M0 onward | Seeded below |
 | Sec #1 | | Third-party audit, published | M5 | Audit scope from the team |
-| Sec #2, #3 | §3, §4, §8 | Adversarial suite; redirect and overcharge refused | M1–M3 | |
+| Sec #2, #3 | §3, §4, §8 | Adversarial suite; redirect and overcharge refused | M1–M3 | Designed |
 | Sec #4 | §7 | Loss in each window stays within the caps | M1 | Cap values from the team |
-| Sec #7 | §8 | Trust document | M4 | |
-| Sec #8 | §5, §7 | Immutable halves; the key-set rule; a migration rehearsal | M2, M3 | |
-| Sec #9 | §7 | Scoped refund; double spend and redirect refused | M3 | |
-| Priv #4, #6, #7 | §6, §8 | Each component's view checked; relayer switch; private default | M3, M4 | |
-| Soft #1–#5 | §5, §7, §9 | Value commitments; viewing keys; per-token release delay; one verifier interface; calldata handoff | M3, M4 | |
+| Sec #7 | §8 | Trust document | M4 | Designed |
+| Sec #8 | §5, §7 | Immutable halves; the key-set rule; a migration rehearsal | M2, M3 | Designed |
+| Sec #9 | §7 | Scoped refund; double spend and redirect refused | M3 | Designed |
+| Priv #4, #6, #7 | §6, §8 | Each component's view checked; relayer switch; private default | M3, M4 | Designed |
+| Soft #1–#5 | §5, §7, §9 | Value commitments; viewing keys; per-token release delay; one verifier interface; calldata handoff | M3, M4 | Designed |
 
 **Decision log (S4), seeded:** B1 one write-once slot per deposit; B2 a nullifier on the statement ID, blinded; B3 burn plus a private Redeem into tickets; B4 LEZ's sequencer threshold proposed, with paths (a) and (b); B5 signer bonds and fault proofs on LEZ; B6 a candidate window with a minority veto; B7 optional fuel; B8 a refund failsafe scoped to what a fault stranded; B9 default depths per direction; B10 fees through the RFP-001 switch under an immutable ceiling; B11 a calldata handoff for common wallets; B12 account-bound ownership instead of seed-derived secrets.
 
