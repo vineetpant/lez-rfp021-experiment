@@ -19,25 +19,21 @@ Signal: sufialhussaini.17
 Member 1
 Name or pseudonym: Chirag Mahaveer Parmar
 Social links: https://github.com/chirag-parmar
-Role: TODO (team)
 Status: Contractor
 
 Member 2
 Name or pseudonym: Shoaib Ahmed
 Social links: https://github.com/hu55a1n1
-Role: TODO (team)
 Status: Contractor
 
 Member 3
 Name or pseudonym: Vineet Pant
 Social links: https://github.com/vineetpant
-Role: TODO (team)
 Status: Contractor
 
 Member 4
 Name or pseudonym: Manas Nagaraj
 Social links: https://github.com/hopinheimer
-Role: TODO (team)
 Status: Contractor
 
 ### Project Summary
@@ -430,7 +426,7 @@ Each row names where the design meets the requirement, the test that will show i
 | S1 | | Deployed on a public Ethereum testnet and LEZ testnet 0.4 | M4 | Open: testnet 0.4 isn't live |
 | S2, S3 | §9 | Linux and macOS builds; the release action | M4 | Designed |
 | S4 | below | Decision log | M0 onward | Seeded below |
-| Sec #1 | | Third-party audit, published | M5 | Audit scope from the team |
+| Sec #1 | M5 | External audit of the vault, the bridge program and the test plan; findings remediated, report published | M5 | Planned |
 | Sec #2, #3 | §3, §4, §8 | Adversarial suite; redirect and overcharge refused | M1–M3 | Designed |
 | Sec #4 | §7 | Loss in each window stays within the caps | M1 | Designed; cap values set in M0 |
 | Sec #7 | §8 | Trust document | M4 | Designed |
@@ -443,41 +439,41 @@ Each row names where the design meets the requirement, the test that will show i
 
 ### Milestones, Payout and Timeline
 
-The build totals about 17 weeks, inside the RFP's 16–20, plus the audit. The external audit is procured and paid by Logos after M4, and is not included in the requested total. Shared work with our RFP-021 proposal, if both are funded, is delivered once and deducted from this one: TODO (team).
+The build totals about 17 weeks, inside the RFP's 16–20, plus the audit. The external audit is procured and paid by Logos after M4, and is not included in the requested total.
 
 **Milestone 0: Feasibility and decisions**
-Payout: TODO
+Payout: $3,000
 Duration: 1 week
 Deliverables: the outbound path decided with Logos in week 1; the account-authorisation and fuel checks; the full private claim and Redeem measured on a mid-range laptop and the declared minimum, Linux and macOS; signature cycles in the guest; bond sizes, window length and fuel price proposed; decision log opened.
 
 **Milestone 1: Vault and inbound**
-Payout: TODO
+Payout: $11,000
 Duration: 4 weeks
 Deliverables: the vault (write-once deposit slots, fuel escrow, registry for USDC, USDT, DAI, WETH and native ETH, caps, freeze); private and public claims through Caisson, with nullifiers; the `Fuel` transaction; adversarial inbound tests and invariant fuzzing of the vault. Developed against a Caisson devnet instance until Caisson is on testnet.
 
 **Milestone 2: Outbound**
-Payout: TODO
+Payout: $14,000
 Duration: 5 weeks
 Deliverables: burn and ticket trees, the private Redeem, the direct-ticket public burn, `Checkpoint`, signer bonds, `Fault` and `FalseDispute` on LEZ; key-set tracking, `attest`, `dispute`, `reconfirm`, `finalize` and `release` on Ethereum, with release caps and the candidate window; symbolic checks of the release path. Under path (b), this milestone carries the validity-path prototype and its decision point instead.
 
 **Milestone 3: Recovery, failsafe and privacy**
-Payout: TODO
+Payout: $8,000
 Duration: 3 weeks
 Deliverables: recovery from the wallet seed by trial-decrypting the memos, including fuel and unreleased tickets; the scoped `Refund` failsafe and a migration rehearsal; viewing keys; the linkage test and full-diff test of a round trip; anonymity-set reporting; split-amount spacing.
 
 **Milestone 4: Modules, testnet and release**
-Payout: TODO
+Payout: $11,000
 Duration: 4 weeks
 Deliverables: core module, mini-app and admin UI; relayer, fuel-operator, signer and prover daemons with headless CLIs; the one-action background flows; the calldata handoff for common wallets; SPEL IDL; module catalog; deployment on a public Ethereum testnet and LEZ testnet 0.4; e2e CI; user, developer, operator and deployer docs; the trust document.
 
-**Milestone 5: Audit**
-Payout: TODO
+**Milestone 5: Audit remediation**
+Payout: $3,000
 Duration: 1 week after the audit report
-Deliverables: third-party audit of the vault and the bridge program, remediation of findings, published report.
+Deliverables: findings from the external audit of the vault and the bridge program fixed or acknowledged; tests re-run; report published.
 
 ### Total Requested Budget (USD)
 
-TODO (team): the sum of the milestone payouts above.
+$50,000
 
 ### Relevant Experience
 
@@ -485,8 +481,6 @@ TODO (team): the sum of the milestone payouts above.
 - **Shoaib Ahmed** worked on Cosmos IBC at Informal Systems, where each chain verifies the other's consensus with an on-chain light client. In ibc-rs he implemented the light-client extraction (ADR 011). He was lead developer of Quartz, a TEE framework whose enclaves verify the chain through a light client, and of Cycles, with arkworks settlement circuits and nullifier derivation; he now works on Shielded Labs' Zeronym. He did the research and the experiment behind Caisson that proved a mainnet sync-committee update as one private LEZ v0.4 transaction.
 - **Vineet Pant** worked on decentralized and self-sovereign identity at evan.network (vade-evan, didcomm-rs): verifiable credentials that reveal only chosen attributes. As an Ethereum Protocol Fellow (cohort six) he worked on EIP-7745 (the trustless log index) in Nimbus, used for a proof of concept, and he has contributed to open-source Ethereum projects, among them Reth, Ream and Colibri. He built the `eth_lc` prototype whose measured private attestations ground this proposal's claim costs, and checked this design against the LEZ v0.4 source.
 - **Manas Nagaraj** is a developer at Sigma Prime on Lighthouse, the Rust Ethereum consensus client, and a former Ethereum Protocol Fellow. His merged Lighthouse work includes Gloas support and fork-choice updates, and he has contributed gossipsub 1.2 to rust-libp2p.
-
-TODO (team): any Solidity and audit-preparation experience, for the vault.
 
 ### Post-Delivery Plan
 
