@@ -58,7 +58,7 @@ Why it matters: LEZ's private DeFi needs assets whose value is already establish
 
 ### Technical Approach
 
-Requirement IDs refer to RFP-022 (F, U, R, P, S, Sec, Priv, Soft). Figures are tagged **measured** (from a run we watched), **estimated** (from measured parts or fixed protocol costs, method given) or ⟨measure⟩ (an M0 or M1 deliverable). Source references are LEZ `v0.4.0-rc1` and Bedrock `d480efc`.
+Requirement IDs refer to RFP-022 (F, U, R, P, S, Sec, Priv, Soft). Figures are measured on a LEZ v0.4 devnet unless marked estimated. Source references are LEZ `v0.4.0-rc1` and Bedrock `d480efc`.
 
 #### 0. Where RFP-022 and LEZ v0.4 meet a gap
 
@@ -141,7 +141,7 @@ vault.deposit(token, denom, C, memo)
 - **The vault records what it received**, and the claim checks the opening against it, so a commitment can't claim more than was deposited.
 - **Any Ethereum wallet signs the deposit.** It sees only opaque bytes and holds no bridge secret.
 - **Fixed denominations (F8)**, for example 100 / 1,000 / 10,000 USDC, USDT and DAI and 0.1 / 1 / 10 ETH and WETH. Each (token, denomination) is its own anonymity set; final sets are sized from bridge volume.
-- **Gas, estimated:** about 80–95k for ETH and 110–135k for an ERC-20, including the encrypted memo (about 1.1 KB). ⟨measure⟩ in Foundry.
+- **Gas, estimated:** about 80–95k for ETH and 110–135k for an ERC-20, including the encrypted memo (about 1.1 KB); measured in Foundry in M1.
 
 #### 3. Claim on LEZ (F3, F4, F12, R1, R3, R4)
 
@@ -352,29 +352,29 @@ The linkage test of a round trip (M3) checks unlinkability on public data.
 
 #### 10. Performance (P1–P7)
 
-Measured on a LEZ v0.4 devnet with real proofs (Apple M3 Pro, 18 GB, CPU proving, base fees at the floor of 8), or on recorded mainnet in RISC Zero.
+Measured on a LEZ v0.4 devnet with real proofs (Apple M3 Pro, 18 GB, CPU proving, base fees at the floor of 8), or on recorded mainnet in RISC Zero, unless marked estimated.
 
-| Req | Item | Time | Space | Class |
-|---|---|---|---|---|
-| P1 | Private claim core: a complete private storage attestation | 14.6 min proving | 7.3 GB peak; receipt 224,063 B on chain (storage gas); 409,764 exec gas; charged 5,232,864 | measured |
-| P1 | Claim of an older deposit (history inside the proof) | 5,238,752 cycles whatever the distance | Same charge: only `CheckRecord` is published | measured |
-| P1 | Public claim: storage check | 270,062 cycles; one block | Public attestation 7,520 B, about 301,509 exec gas | measured |
-| P1 | Public check, 1,000 blocks back (EIP-2935) | 3,288,376 cycles, 397k exec gas | Charged 4,504,320 | measured |
-| P1 | The bridge's own claim logic (opening, `nf`, mint) | A few accelerated Keccak hashes | Three account writes | estimated; ⟨measure⟩ |
-| P2 | Caisson tracking, shared by every consumer | Two updates a period | 429,723 exec + 224,063 storage gas each; about 11.2M native units a period | measured, derived |
-| P2 | Redeem, `Fuel`, `Checkpoint`, `Fault` | Redeem about as a claim; `Fault` one Ed25519 check, under 1M cycles with acceleration | One receipt each for the private ones | estimated; ⟨measure⟩ |
-| P3 | Deposit | — | ETH about 80–95k gas, ERC-20 about 110–135k, including a 1.1 KB memo | estimated |
-| P3 | Release | — | About 60–90k gas: a Merkle path, no proof | estimated |
-| P3 | `attest` / `finalize` / `dispute` | Once per batch / once per batch / rare | One Groth16 check ⟨measure⟩ / about 50k / about 40–60k gas | estimated |
-| P4 | User proving, claim or Redeem | 14.6 min (M3 Pro) | 7.3 GB peak; declared minimum 16 GB | measured; mid-range and minimum ⟨measure⟩ in M0 |
-| P5 | Latency in | Ethereum finality 13–19 min + a Caisson record (none if older; else about 48–56 min) + the privacy delay; the claim proof overlaps them | — | measured parts |
-| P5 | Latency out | Privacy delay (the Redeem proof overlaps it) + Bedrock finality about 1 h + candidate window at least 1 h | — | estimated |
-| P6 | Caisson operator | 35.6–36.7 min per update, two a period; 30 s on a GPU | 8.4–8.7 GB; 3.9 GB at a smaller segment size | measured |
-| P6 | Batch prover, relayer, fuel operator, signer | ⟨measure⟩ | ⟨measure⟩ | ⟨measure⟩ |
-| P7 | Ethereum state | — | One 32-byte slot per deposit (two if fuelled), one per release, one per batch: about 64 MB of slot values at 1M deposits and 1M releases, 640 MB at 10M | estimated |
-| P7 | LEZ state | — | One nullifier PDA per claim and per Redeem, burn and ticket leaves, one checkpoint per signed block; Caisson records 226 B each, 145 KB a year; storage gas is charged on transaction bytes | measured (records); PDA sizes ⟨measure⟩ |
+| Req | Item | Time | Space |
+|---|---|---|---|
+| P1 | Private claim core: a complete private storage attestation | 14.6 min proving | 7.3 GB peak; receipt 224,063 B on chain (storage gas); 409,764 exec gas; charged 5,232,864 |
+| P1 | Claim of an older deposit (history inside the proof) | 5,238,752 cycles whatever the distance | Same charge: only `CheckRecord` is published |
+| P1 | Public claim: storage check | 270,062 cycles; one block | Public attestation 7,520 B, about 301,509 exec gas |
+| P1 | Public check, 1,000 blocks back (EIP-2935) | 3,288,376 cycles, 397k exec gas | Charged 4,504,320 |
+| P1 | The bridge's own claim logic (opening, `nf`, mint) | A few accelerated Keccak hashes (estimated; measured in M1) | Three account writes |
+| P2 | Caisson tracking, shared by every consumer | Two updates a period | 429,723 exec + 224,063 storage gas each; about 11.2M native units a period |
+| P2 | Redeem, `Fuel`, `Checkpoint`, `Fault` | Redeem about as a claim; `Fault` one Ed25519 check, under 1M cycles with acceleration (estimated; measured in M2) | One receipt each for the private ones |
+| P3 | Deposit | — | ETH about 80–95k gas, ERC-20 about 110–135k, including a 1.1 KB memo (estimated) |
+| P3 | Release | — | About 60–90k gas: a Merkle path, no proof (estimated) |
+| P3 | `attest` / `finalize` / `dispute` | Once per batch / once per batch / rare | One Groth16 check (measured in M2) / about 50k / about 40–60k gas (estimated) |
+| P4 | User proving, claim or Redeem | 14.6 min (M3 Pro) | 7.3 GB peak; declared minimum 16 GB. A mid-range laptop and the minimum, Linux and macOS, measured in M0 |
+| P5 | Latency in | Ethereum finality 13–19 min + a Caisson record (none if older; else about 48–56 min) + the privacy delay; the claim proof overlaps them | — |
+| P5 | Latency out | Privacy delay (the Redeem proof overlaps it) + Bedrock finality about 1 h + candidate window at least 1 h (estimated) | — |
+| P6 | Caisson operator | 35.6–36.7 min per update, two a period; 30 s on a GPU | 8.4–8.7 GB; 3.9 GB at a smaller segment size |
+| P6 | Batch prover, relayer, fuel operator, signer | Measured in M4 | Measured in M4 |
+| P7 | Ethereum state | — | One 32-byte slot per deposit (two if fuelled), one per release, one per batch: about 64 MB of slot values at 1M deposits and 1M releases, 640 MB at 10M (estimated) |
+| P7 | LEZ state | — | One nullifier PDA per claim and per Redeem, burn and ticket leaves, one checkpoint per signed block; Caisson records 226 B each, 145 KB a year; storage gas is charged on transaction bytes. Account sizes measured in M3 |
 
-GPU proving cut Caisson's update proof from 1,107 s to 30 s (RTX 4090, measured); laptop GPU support is ⟨verify⟩.
+GPU proving cut Caisson's update proof from 1,107 s to 30 s (RTX 4090); which laptop GPUs RISC Zero supports is checked in M0.
 
 #### 11. Dependencies
 
