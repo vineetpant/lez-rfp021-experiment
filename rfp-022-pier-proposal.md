@@ -62,7 +62,18 @@ Requirement IDs refer to RFP-022 (F, U, R, P, S, Sec, Priv, Soft). Figures are t
 
 #### 0. Where RFP-022 and LEZ v0.4 meet a gap
 
-RFP-022 asks the vault to release on cryptographic verification of a LEZ burn, with no trusted signers or federations. LEZ v0.4, checked in its source, has no state root in its block header (`lez/common/src/block.rs`: block id, previous hash, timestamp and a hash of the whole block) and no validity proof of its blocks. Bedrock relies on the zone's sequencer threshold for withdrawals from a zone (`ChannelWithdraw`; two thirds of the `sequencer_stake` committee). Verifying Bedrock's leadership proofs on Ethereum would also need an epoch nonce and two ledger roots that no header carries (`zk/proofs/pol/src/inputs.rs`). So the outbound leg depends on a choice about how Ethereum learns LEZ state. The same question arises for RFP-023 (draft), which inherits RFP-022's approach.
+RFP-022 asks the vault to release on cryptographic verification of a LEZ burn, with no trusted signers or federations. What LEZ v0.4 provides, checked in its source:
+
+| Fact | Where |
+|---|---|
+| A LEZ block header is `block_id`, `prev_block_hash`, `timestamp` and `hash` (SHA-256 of the whole block). There is no state root | `lez/common/src/block.rs` |
+| Each block is inscribed whole on a Bedrock channel, signed by one sequencer key. State is the fold of the final inscriptions; an invalid block is skipped, so validity means executing every transaction | `lez/sequencer/core`; `lez/chain_state/src/chain.rs` |
+| Bedrock finality is k blocks deep (k = 120 on testnet, about 1 h), with no finality certificate | `consensus/cryptarchia-engine`; testnet deployment template |
+| Checking a leadership proof needs the epoch nonce and two ledger roots, which no header carries | `zk/proofs/pol/src/inputs.rs` |
+| Funds leave a zone on threshold Ed25519 signatures of its accredited keys: two thirds of the `sequencer_stake` committee | `mantle/ops/channel/withdraw.rs`; `committee_discovery.rs` |
+| `sequencer_stake` slashes only on a two-thirds vote, with no proof of the offence | `lez/programs/sequencer_stake/core/src/lib.rs:312–321` |
+
+So the outbound leg depends on a choice about how Ethereum learns LEZ state. The same question arises for RFP-023 (draft), which inherits RFP-022's approach.
 
 - **What we propose.** LEZ's own sequencer threshold signs the bridge state: the trust Bedrock already applies to withdrawals, and so the security of the LEZ network as v0.4 defines it. We add the accountability v0.4 doesn't provide: bonds, fault proofs checked on LEZ, and a minority veto on Ethereum (§5).
 - **What we'd like to agree with Logos in M0.** (1) Whether the sequencer threshold meets F7 and the trust model on v0.4. (2) Whether sequencers would run our signing module, with a bridge bond. (3) Logos's direction on a state commitment in the LEZ header and validity proofs of LEZ blocks.
@@ -74,6 +85,39 @@ RFP-022 asks the vault to release on cryptographic verification of a LEZ burn, w
 - **Bridge program** (LEZ, immutable): claims, mints, burns, Redeems, tickets, checkpoints, nullifiers, caps, fees, bonds and fault proofs, per configuration. It pins one Caisson program and instance.
 - **Caisson** (LEZ, our RFP-021 primitive): finalised Ethereum headers and the Storage fact a claim proves. Read only.
 - **Off-chain, all Logos modules with headless CLIs**: bridge core module, mini-app and admin UI, and the relayer, fuel-operator, signer and batch-prover daemons.
+
+**Flows.**
+
+```mermaid
+sequenceDiagram
+    participant U as User (LEZ account dest)
+    participant V as Vault, Ethereum
+    participant C as Caisson, LEZ
+    participant B as Bridge program, LEZ
+    U->>V: deposit(token, denom, C, memo)
+    Note over V: no LEZ destination on Ethereum
+    Note over C: a finalised record N covers the deposit
+    U->>U: prove as dest: C's slot holds the asset under N, open C with ρ, nf = H(id, ρ)
+    U->>B: private claim, sent from dest
+    B->>C: CheckRecord(N)
+    B->>B: Spend(nf), cap, mint denom minus fee to dest
+```
+
+```mermaid
+sequenceDiagram
+    participant U as User (holder, redeemer)
+    participant B as Bridge program, LEZ
+    participant S as Signers
+    participant V as Vault, Ethereum
+    U->>B: Burn: B = H(token, denom, redeemer, t) into the burn tree
+    U->>B: later, private Redeem sent from redeemer: Spend(nf'), ticket K = H(eth_dest, r)
+    Note over B: the block is final on Bedrock, Checkpoint records the state hash
+    S->>V: attest: threshold-signed state as Groth16, stored as a candidate
+    Note over V: candidate window: one signer may veto, a false state is slashed on LEZ
+    V->>V: finalize: the ticket root becomes usable
+    U->>V: release(K opening, path), directly or through a relayer
+    V->>V: spend K, pay eth_dest
+```
 
 **Configurations (F15, F16).** A configuration lives at `PDA(bridge, config_id)`, with `config_id = keccak(chain_id ‖ vault ‖ lez_chain_id ‖ zone_id ‖ bridge_program ‖ caisson_program ‖ caisson_instance ‖ admin_authority)`. Every commitment, nullifier, ticket and signed message binds `config_id`, so nothing valid under one pairing or configuration is accepted under another. Mutable parameters (registry, caps, fees, depth) sit under it, writable only by its own admin. A client lists configurations from their events and switches by `config_id`. Each configuration pairs one EVM chain with one zone, and each chain's token gets its own wrapped mint, so an incident on one chain stays contained to that chain's supply.
 
@@ -110,8 +154,16 @@ The private claim (the default) is a private transaction **sent from `dest`**, s
 
 Published: `CheckRecord(N)` (the only Caisson message), `Spend{nf}` at a write-once PDA, the cap counter, and the mint of the denomination minus a fixed fee to `dest`.
 
-- **F3, met as written.** Uniqueness is keyed on the statement identifier the attestation carries. Each deposit has its own write-once slot, so its own statement ID, which Caisson's nullifier-safety class marks safe as a one-shot key. Blinding it with `ρ` keeps it from naming the deposit at every mint (Priv #1).
-- **Theft-proof (Sec #3).** `dest` is sealed in `C`, and only `dest` can send the claim; learning `ρ` gives no power to claim.
+**F3, met as written:** uniqueness is keyed on the statement identifier the attestation carries, blinded so it never names the deposit.
+
+| Nullifier property | Why it holds |
+|---|---|
+| One claim per deposit (R3, Sec #6) | Each deposit has one write-once slot, so one statement ID (State class, safe as a one-shot key for write-once state); `deposits[C]` refuses a repeated `C` |
+| Unlinkable (Priv #1, #3) | `nf` needs `ρ`, which only `dest`'s viewing key decrypts; a raw statement ID is public data and would name the deposit |
+| Theft-proof (Sec #3) | `dest` is sealed in `C` and only `dest` can send the claim; learning `ρ` gives no power |
+| Survives a Caisson instance change | `nf` doesn't depend on the instance or record; Caisson gives one fact the same ID across instances |
+| Recoverable (F9) | A restored wallet decrypts the memo, recomputes `nf`, and its PDA says whether the deposit was claimed |
+
 - **Atomic and retry-safe.** A rejected claim changes nothing. Caisson records are immutable, so a valid claim never expires (R4).
 - **Concurrency, verified in source.** A private transaction's public part runs on live state at inclusion and must reproduce what was proven (`validated_state_diff/mod.rs:374–392`). The bridge sends nothing back into the private part, so claims in one block don't conflict.
 
@@ -127,7 +179,18 @@ Published: `CheckRecord(N)` (the only Caisson message), `Spend{nf}` at a write-o
 
 **Finality (F12).** Recommended inbound default: Ethereum finality, read through a Caisson record. Residual risk: a captured sync committee could sign a forged header (the assumption RFP-021 accepts; at least 10,944 ETH of committee stake, not slashed today). The next committee's record exposes it within about 27 h and freezes claims (EV1), so the mint cap per 27-hour window is set to the loss a deployer accepts. Stricter setting: the two-committee rule, up to about 27 h. Outbound default: Bedrock finality (k = 120, about 1 h on testnet) plus a candidate window of at least 1 h. Every past depth is kept, so a change never invalidates a valid claim.
 
-**Who pays (fuel).** On v0.4 a private transaction pays its fee inside its own proof, from a private account the prover owns (`lez/wallet/src/account_manager.rs:755`); a relayer can submit but can't pay. A deposit can optionally buy fuel: `f` in ETH for a fixed amount of native LEZ. Soon after the deposit, any operator sends a sealed credit to a blinded alias of `dest`, with the alias's opening and recovery binding carried in the memo, and is repaid in wrapped ETH backed by the escrowed `f`. Verified in source: credits can go to a blinded alias (`native_token.rs:66–78`, `program/mod.rs:248`); spending one publishes a nullifier that needs the account's secret key (`circuit_io.rs:246`); and every private action is published in one uniform shape, padded to 7 (`circuit_io.rs:470`). So a fuelled claim looks like any other, and optional fuel doesn't split the anonymity set. Sized at about 10.5M native units for a claim and a Redeem, from the measured 5,232,864 per private transaction at the floor fee.
+**Who pays (fuel).** On v0.4 a private transaction pays its fee inside its own proof, from a private account the prover owns (`lez/wallet/src/account_manager.rs:755`); a relayer can submit but can't pay. A deposit can optionally buy fuel: `f` in ETH for a fixed amount of native LEZ. Soon after the deposit, any operator sends a sealed credit to a blinded alias of `dest`, with the alias's opening and recovery binding carried in the memo, and is repaid in wrapped ETH backed by the escrowed `f`. Optional fuel doesn't split the anonymity set:
+
+| Fuel property | Source | Status |
+|---|---|---|
+| Native LEZ can be credited to a private account; only the native-token program issues a `Credit`, so the bridge can't forge gas | `native_token.rs:66–78` | verified |
+| The alias hides the account: `SHA-256(prefix ‖ account_id ‖ opening)`, opening random and in the memo | `program/mod.rs:248` | verified |
+| Spending the credit is an unlinkable nullifier that needs the account's secret key | `circuit_io.rs:246` | verified |
+| A fuelled claim looks like any other: every private action has one shape, padded to 7 | `circuit_io.rs:470` | verified |
+| A credit needs the recipient's recovery binding first, so `Fuel` adds the user's binding | `validated_state_diff/mod.rs:330–336, 528` | verified |
+| The operator's signature authorises its transfer inside the bridge's call | `program/mod.rs:379` | to test; fallback: a top-level transfer |
+
+Sized at about 10.5M native units for a claim and a Redeem, from the measured 5,232,864 per private transaction at the floor fee.
 
 #### 4. Burn, Redeem, Release (F5, F6, F7, R2)
 
@@ -205,13 +268,47 @@ The linkage test of a round trip (M3) checks unlinkability on public data.
 - **Registry (F10, F17).** Per token: address, wrapped mint (LP-0013, ATA-compatible), decimals, denominations, caps. USDC and USDT (6 decimals), DAI and WETH (18), and native ETH as its own entry. The wrapped mint keeps the token's decimals, so registration refuses anything not exactly representable. Delisting stops deposits only; a removed denomination stays claimable and burnable; a new one starts an empty anonymity set.
 - **Caps (F11, Sec #4).** Rolling mint caps on LEZ and release caps on the vault, per token and global. The mint window is about 27 h (how long the next sync committee's record takes to expose a forged header); the release window covers the candidate window and release delay. Values: TODO (team). A configuration may raise a cap for a Caisson record backed by restaked stake, but only after its challenge window, and never requires backing.
 - **Fees (F13).** In the wrapped token, through the RFP-001 fee switch, mint and burn set independently. Initial rate 0 on testnet; recommended production start 10 bps; range 0–100 bps, with the ceiling fixed per configuration at deployment. Each rate is rounded to a fixed amount per (token, denomination), so it can't fingerprint; the mint fee is taken at claim and the burn fee at burn, so amounts stay on the grid. Routing: treasury, relayer, and optionally Caisson's staleness bounty, so bridge traffic pays for fresh records. The fuel price `f` is separate, and not a fee.
-- **Freeze (F14, Sec #5).** The RFP-002 freeze authority pauses minting or redemption, globally or per token, on each half independently. A Caisson freeze stops claims by itself. Evidence freezes need no admin: anyone proves that Caisson froze the instance (EV1), that more was minted than received (EV2), that a backed record was proven false (EV3), or that the signers signed two conflicting states (EV5). EV4 is checked inline in every release; EV6 (a false state) and EV7 (a veto) are in §5. The freeze works at token and protocol level only, as a consequence of the privacy design.
+- **Freeze (F14, Sec #5).** The RFP-002 freeze authority pauses minting or redemption, globally or per token, on each half independently. Evidence freezes need no admin (table below). The freeze works at token and protocol level only, as a consequence of the privacy design.
 - **Immutability and migration (Sec #8).** Both halves are immutable, with no proxy, and Caisson is pinned in `config_id`. A new version is a new pair; old wrapped tokens keep redeeming from the old vault, and no escrow moves between vaults. Adopting value commitments (Soft #1) is such a new version, or, if built in from the start behind a switch, needs no redeployment (a team decision).
 - **Failsafe (Sec #9).** A refund is decided on LEZ, where the nullifiers live, and paid on Ethereum against the vault's own record. `Refund` is sent from `dest`, opens `C`, writes the same nullifier a claim would (so a deposit is never both claimed and refunded) and issues `K_r = keccak("bridge/refund/v1" ‖ config_id ‖ C ‖ eth_addr)`; the vault pays it against `deposits[C]`. It needs no Caisson, so it works when the fault is in Caisson. It acts only on what the fault stranded: a freeze names its scope (the configuration or one token), and a refund must fall inside it. Refunds count against the release cap. If the fault is in the outbound verification itself, the failsafe is stop-only: escrow stays locked and no admin can move it.
+
+| EV | Trigger | Submitted by | Effect | Why it is sound |
+|---|---|---|---|---|
+| EV1 | Caisson froze the pinned instance | Anyone | Claims stop; scope: the configuration | Only valid evidence writes Caisson's Freeze account |
+| EV2 | More minted than the vault received | Anyone | That token freezes | Every honest claim proves a deposit before its record |
+| EV3 | A backed record proven false | Anyone | The configuration freezes | A Caisson Stake challenge is a proof |
+| EV4 | More released than redeemed | Inline, every release | That release refused | Checked by the vault itself |
+| EV5 | Two conflicting signed states | Anyone, on Ethereum | Releases stop | Two states for one block prove the threshold lied |
+| EV6 | A false signed state | Anyone, on LEZ | Signer's bonds burned; Redeems and checkpoints stop | Compared with LEZ's own checkpoint |
+| EV7 | One signer's veto | A signer, on Ethereum | The candidate is held; a false veto is slashed | Reinstated only by n − 1 |
+
+| Where the fault is | Unclaimed deposits | Burned, not yet released | Wrapped tokens in circulation |
+|---|---|---|---|
+| Caisson, or the claim's verification | Refunded, scoped to the freeze | Releases continue, or the freeze authority pauses them | Possibly partly unbacked; bounded by mint caps, visible through EV2 |
+| The bridge program on LEZ | Refunded, scoped to the freeze | Paused by the freeze authority; tickets under signed states stay valid | As above |
+| Outbound verification (signers, the Groth16 guest, the vault's release) | Stop-only: escrow stays locked, a new version is deployed, nothing can be moved by an admin | | |
 
 #### 8. Security
 
 **Trust model (Sec #7).** Ethereum and LEZ consensus; the sync committee through Caisson (bounded by depth and caps); the token issuer (blacklisting the vault affects every holder); the signers (§5). Off-chain roles are liveness only: relayers, Caisson operators, the fuel operator and the batch prover can each be replaced by anyone, the user included. If every signer stops, releases wait and tickets stay valid; under the proposed design, that is LEZ itself stopping.
+
+| Component that handles user data (Priv #4, #6) | What it sees | Can it link the legs? | Switchable? |
+|---|---|---|---|
+| The user's LEZ wallet | Every key and decrypted memo | It is the user's own control | — |
+| Ethereum wallet signing the deposit | `C`, token, amount, the encrypted memo | No | Any wallet |
+| Relayer | A finished proof or ticket opening, its time, the user's IP | No | Per operation, or self-submit |
+| Fuel operator | An alias already public on Ethereum | No | Any operator, or fund another way |
+| Batch prover, signers | Public signatures and public state | No | Anyone can prove |
+| RPC, sequencer, indexer | Queries and the user's IP (out of scope, disclosed) | Network metadata only | Yes (U9) |
+
+| Third-party component (R9) | If it is down | Mitigation |
+|---|---|---|
+| Caisson operator | Deposits newer than the latest record wait | Anyone can update, with a staleness bounty; older deposits stay claimable |
+| Relayer | A claim, Redeem or release isn't submitted | Another relayer, or self-submission |
+| Fuel operator | A fuelled deposit's gas doesn't arrive | Any operator, or fund the account another way |
+| Batch prover | Signed states aren't proven for Ethereum | Anyone can prove a batch; it needs no secret |
+| Signers | Releases wait; tickets stay valid | Primary: that is LEZ stopping. Path (a): a stated weakness |
+| RPC or sequencer | Reads or submissions fail | Switch endpoint; daemons resume from chain state |
 
 **Bridge exploits, mapped to the RFP's appendix.**
 
@@ -224,7 +321,13 @@ The linkage test of a round trip (M3) checks unlinkability on public data.
 | Deposit accounting error (Qubit, Meter.io, THORChain's router) | Exact pull with a balance-difference check; `msg.value == denom`; the slot records the asset received |
 | Generic cross-chain call abused (Poly Network) | No generic messaging; nothing received can change keys, registry or verification |
 
-**Verification plan (Sec #2, #6).** Stateful invariant fuzzing of the vault (wrapped supply ≤ escrow; one release per ticket; one refund per deposit; no release on an unfinalised root; caps hold); symbolic checks of `release`, `refund`, `finalize`, `dispute` and the handoff; property tests of the guest logic; and an adversarial suite: forged slot values, wrong vault or slot, other chains and configurations, wrong openings, replayed nullifiers and releases, forged, missing and replayed signatures, handoffs below threshold, refund after claim and claim after refund.
+**Verification plan (Sec #2, #6).** Stateful invariant fuzzing of the vault (wrapped supply ≤ escrow; one release per ticket; one refund per deposit; no release on an unfinalised root; caps hold); symbolic checks of `release`, `refund`, `finalize`, `dispute` and the handoff; property tests of the guest logic; and an adversarial suite, each case beside an honest control:
+
+- **Inbound:** a forged slot value; the wrong vault or slot; another chain or configuration; a wrong opening; a claim for more than was deposited; a claim not sent from `dest`; a replayed `nf`.
+- **Outbound:** a Redeem not sent from the redeemer; a replayed `nf'` or ticket; a release on an unfinalised or unattested root; a tampered proof or wrong public inputs.
+- **Signers:** forged, missing or replayed signatures; a handoff below threshold; equivocation; a false veto.
+- **Failsafe:** a refund after a claim; a claim after a refund; a refund outside its scope.
+- **Invariants:** wrapped supply ≤ escrow under random deposit, claim, burn, Redeem, release and refund sequences.
 
 #### 9. Modules and usability (U1–U10)
 
@@ -232,25 +335,46 @@ The linkage test of a round trip (M3) checks unlinkability on public data.
 - **One action per direction (U5).** "Bridge in" and "Withdraw to 0x…" each start a background job: it proves the claim once the Caisson record exists and submits after the privacy delay; it burns, proves the Redeem, submits, and a relayer releases. A job resumes after a restart, and an interrupted one has submitted nothing (R7). The app shows an arrival time, not a proof time.
 - **Proofs made early stay valid.** LEZ accepts any commitment root its tree has ever had (`root_history`, `lee/state_machine/src/state/mod.rs:623–626`), and records and burn roots are written once, so proving overlaps the waits.
 - Mini-app (deposit and redemption end to end, recovery, registry with caps and utilisation, a leak indicator, private pre-selected) and admin UI; daemons as Logos modules with headless CLIs and a documented operator journey (install, configure, run, monitor) (U3); events through LP-0012; a hand-written SPEL IDL with a drift check (U4); errors with one code per failure mode, revealing no deposit or burn (U8); switchable endpoints (U9); our own module catalog with the release action (U10, S3).
+- **Errors (U8).** One code per failure mode, in the crate Caisson's program and module share (5xx bridge program, 6xx module); no message carries a commitment, slot, nullifier or destination, so no error says which deposit or burn it concerned.
+
+| Failure mode | Code | Raised by |
+|---|---|---|
+| Unsupported token | `UnsupportedToken` (500) | Vault, claim |
+| Invalid amount | `InvalidDenomination` (501) | Vault, claim, burn |
+| Cap exceeded | `CapExceeded` (502) | Claim, release |
+| Verification failure | `VerificationFailed` (503), or Caisson's code | Prover, vault |
+| Insufficient finality | `InsufficientDepth` (504) | Prover, vault |
+| Already claimed | `AlreadySpent` (505) | Claim, release |
+| Frozen | `Frozen` (506), `TokenFrozen` (507), Caisson `InstanceFrozen` (300) | Both halves |
+| Wrong configuration | `WrongConfig` (508) | Claim, release |
+
 - **Common Ethereum wallets (Soft #5).** Basecamp prepares the whole deposit and the user signs it in their own wallet through WalletConnect or a QR code; every bridge secret stays in Basecamp, and an ERC-7730 descriptor gives Ledger clear signing. We rejected deriving secrets from a wallet signature (phishable, and fails for smart-contract wallets).
 
 #### 10. Performance (P1–P7)
 
-| Item | Figure | Class |
-|---|---|---|
-| Complete private storage attestation on a LEZ v0.4 node (the core of a private claim) | 14.6 min, 7.3 GB, charged 5,232,864 native units (Apple M3 Pro, 18 GB, CPU) | measured |
-| Private receipt verification, every private transaction | 409,764 exec gas + 224,063 storage gas | measured |
-| A deposit older than the record (history inside the private proof) | 5,238,752 cycles whatever the distance; no extra charge | measured |
-| Public claim: storage check | 270,062 cycles; a public attestation charged 2,469,032 on the node | measured |
-| Caisson tracking, shared by every consumer | About 11.2M native units a sync-committee period | measured, derived |
-| Deposit gas | ETH about 80–95k; ERC-20 about 110–135k | estimated |
-| Release gas | About 60–90k (Merkle path, no proof) | estimated |
-| `attest`, once per batch | One Groth16 verification and one slot | ⟨measure⟩ |
-| Latency in | Ethereum finality (13–19 min) + a Caisson record (none if older than the latest; else about 48–56 min) + the privacy delay; the claim proof overlaps them | measured parts |
-| Latency out | Privacy delay (the Redeem proof overlaps it) + Bedrock finality (about 1 h) + candidate window (at least 1 h) | estimated |
-| Growth | Ethereum: one slot per deposit and per release; LEZ: one PDA per nullifier and per checkpoint | estimated |
+Measured on a LEZ v0.4 devnet with real proofs (Apple M3 Pro, 18 GB, CPU proving, base fees at the floor of 8), or on recorded mainnet in RISC Zero.
 
-Declared minimum 16 GB, CPU proving; M0 measures the claim and the Redeem on a mid-range laptop and on the minimum, Linux and macOS (P4). GPU proving cut Caisson's update proof from 1,107 s to 30 s (measured); laptop GPU support is ⟨verify⟩.
+| Req | Item | Time | Space | Class |
+|---|---|---|---|---|
+| P1 | Private claim core: a complete private storage attestation | 14.6 min proving | 7.3 GB peak; receipt 224,063 B on chain (storage gas); 409,764 exec gas; charged 5,232,864 | measured |
+| P1 | Claim of an older deposit (history inside the proof) | 5,238,752 cycles whatever the distance | Same charge: only `CheckRecord` is published | measured |
+| P1 | Public claim: storage check | 270,062 cycles; one block | Public attestation 7,520 B, about 301,509 exec gas | measured |
+| P1 | Public check, 1,000 blocks back (EIP-2935) | 3,288,376 cycles, 397k exec gas | Charged 4,504,320 | measured |
+| P1 | The bridge's own claim logic (opening, `nf`, mint) | A few accelerated Keccak hashes | Three account writes | estimated; ⟨measure⟩ |
+| P2 | Caisson tracking, shared by every consumer | Two updates a period | 429,723 exec + 224,063 storage gas each; about 11.2M native units a period | measured, derived |
+| P2 | Redeem, `Fuel`, `Checkpoint`, `Fault` | Redeem about as a claim; `Fault` one Ed25519 check, under 1M cycles with acceleration | One receipt each for the private ones | estimated; ⟨measure⟩ |
+| P3 | Deposit | — | ETH about 80–95k gas, ERC-20 about 110–135k, including a 1.1 KB memo | estimated |
+| P3 | Release | — | About 60–90k gas: a Merkle path, no proof | estimated |
+| P3 | `attest` / `finalize` / `dispute` | Once per batch / once per batch / rare | One Groth16 check ⟨measure⟩ / about 50k / about 40–60k gas | estimated |
+| P4 | User proving, claim or Redeem | 14.6 min (M3 Pro) | 7.3 GB peak; declared minimum 16 GB | measured; mid-range and minimum ⟨measure⟩ in M0 |
+| P5 | Latency in | Ethereum finality 13–19 min + a Caisson record (none if older; else about 48–56 min) + the privacy delay; the claim proof overlaps them | — | measured parts |
+| P5 | Latency out | Privacy delay (the Redeem proof overlaps it) + Bedrock finality about 1 h + candidate window at least 1 h | — | estimated |
+| P6 | Caisson operator | 35.6–36.7 min per update, two a period; 30 s on a GPU | 8.4–8.7 GB; 3.9 GB at a smaller segment size | measured |
+| P6 | Batch prover, relayer, fuel operator, signer | ⟨measure⟩ | ⟨measure⟩ | ⟨measure⟩ |
+| P7 | Ethereum state | — | One 32-byte slot per deposit (two if fuelled), one per release, one per batch: about 64 MB of slot values at 1M deposits and 1M releases, 640 MB at 10M | estimated |
+| P7 | LEZ state | — | One nullifier PDA per claim and per Redeem, burn and ticket leaves, one checkpoint per signed block; Caisson records 226 B each, 145 KB a year; storage gas is charged on transaction bytes | measured (records); PDA sizes ⟨measure⟩ |
+
+GPU proving cut Caisson's update proof from 1,107 s to 30 s (RTX 4090, measured); laptop GPU support is ⟨verify⟩.
 
 #### 11. Dependencies
 
@@ -274,7 +398,46 @@ Declared minimum 16 GB, CPU proving; M0 measures the claim and the Redeem on a m
 
 #### 13. Requirement coverage
 
-Coverage: F1–F2, F17 (§2); F3, F4, F12 (§3); F5–F7 (§4, §5); F8 (§2, §6); F9 (§7); F10–F16 (§1, §7); U1–U10 (§9); R1–R7 (§3, §4, §9); R8 (RISC Zero and its audited verifier; Caisson's reuse plan); R9 (§8); R10 (a round trip in CI against a standalone sequencer and a Kurtosis Ethereum devnet with a consensus layer); R11–R14 (a requirement-to-test matrix and the docs, M4); P1–P7 (§10); S1 (testnet deployment, M4); S2–S3 (§9); S4 (a decision log, opened in M0); Sec #1 (audit milestone); Sec #2–#9 (§5, §7, §8); Priv #1–#7 (§3, §6); Soft #1–#5 (§7, §9).
+| Requirements | Where | Test or evidence | Milestone | Status |
+|---|---|---|---|---|
+| F1, F17 | §2 | Deposit and release per token type; ETH without WETH; USDT on a fork | M1 | designed |
+| F2, Priv #3 | §2, §6 | Full event and state diff of a round trip | M3 | designed |
+| F3, R3, Sec #6 | §3 | Double-claim and racing-claim tests; supply invariant | M1, M3 | statement kind measured; blinding designed |
+| F4, P1 | §3, §10 | Mint to private and public; one public transaction | M1 | measured core |
+| F5, F6 | §4 | No destination in the LEZ diff; burn from private and public; direct ticket | M2 | designed |
+| F7 | §0, §5 | Release e2e; forged, equivocating and vetoed states refused | M2 | open: Logos's path choice |
+| F8, Priv #1, #2 | §2, §6 | Linkage test at chance; set sizes reported | M3 | designed |
+| F9, R5, R7 | §7, §9 | Restore with no local state; interrupted job | M3 | designed |
+| F10, F11 | §7 | Register, delist, change denominations; caps roll | M1 | designed; values TODO |
+| F12 | §3 | Depth raised: earlier claim still lands | M1 | designed |
+| F13 | §7 | Fee set, zeroed, routed; ceiling holds | M1 | designed |
+| F14, Sec #5 | §7 | Each half paused alone; evidence freezes | M1, M2 | designed |
+| F15, F16 | §1 | Cross-pairing refused; two configurations, no cross access | M1 | Caisson chain binding measured |
+| U1–U3, U10 | §9 | Module catalog; operator journey docs | M4 | designed |
+| U4 | §9 | SPEL IDL drift check in CI | M4 | designed |
+| U5–U7 | §3, §9 | UI tests of defaults and the leak indicator | M4 | designed |
+| U8, Priv #5 | §6, §9 | One test per error code; refusals indistinguishable | M1, M3 | revert visibility verified in source |
+| U9 | §9 | Endpoint switching | M4 | designed |
+| R1, R2 | §3, §4 | Failure injection at each step | M1, M2 | designed |
+| R4 | §3 | Claim after a long delay | M1 | measured (immutable records) |
+| R6, R9 | §8, §9 | Kill and restart each daemon | M4 | designed |
+| R8 | §5, §8 | RISC Zero and its audited verifier | M2 | designed |
+| R10 | §13 | Round trip in CI against a standalone sequencer and a Kurtosis Ethereum devnet | M4 | designed |
+| R11–R14 | — | This table as a test matrix; developer, CLI, operator and deployer docs | M4 | designed |
+| P2–P7 | §10 | Scripted benchmarks | M0–M4 | measured in part |
+| S1 | — | Public Ethereum testnet and LEZ testnet 0.4 | M4 | open: testnet 0.4 not live |
+| S2, S3 | §9 | Linux and macOS builds; release action | M4 | designed |
+| S4 | below | Decision log | M0 onward | seeded |
+| Sec #1 | — | Third-party audit, published | M5 | audit scope TODO |
+| Sec #2, #3 | §3, §4, §8 | Adversarial suite; redirect and overcharge refused | M1–M3 | designed |
+| Sec #4 | §7 | Caps bound loss in each window | M1 | designed; values TODO |
+| Sec #7 | §8 | Trust document | M4 | designed |
+| Sec #8 | §5, §7 | Immutable halves; fixed key-set rule; migration rehearsal | M2, M3 | designed |
+| Sec #9 | §7 | Scoped refund; double spend and redirect refused | M3 | designed |
+| Priv #4, #6, #7 | §6, §8 | Data-handling table; relayer switch; private default | M3, M4 | designed |
+| Soft #1–#5 | §7, §9 | Value commitments as a new version or a built-in switch; viewing keys; release delay; one verifier interface; calldata handoff | M3, M4 | designed |
+
+**Decision log (S4), seeded:** B1 one write-once slot per deposit; B2 a nullifier on the statement ID, blinded; B3 burn plus a private Redeem into tickets; B4 LEZ's sequencer threshold proposed, with paths (a) and (b); B5 signer bonds and fault proofs on LEZ; B6 a candidate window with a minority veto; B7 optional fuel; B8 a refund failsafe scoped to what a fault stranded; B9 default depths per direction; B10 fees through the RFP-001 switch under an immutable ceiling; B11 a calldata handoff for common wallets; B12 account-bound ownership instead of seed-derived secrets.
 
 ### Milestones, Payout and Timeline
 
