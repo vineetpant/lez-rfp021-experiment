@@ -205,7 +205,7 @@ Redeem (LEZ, later), a private transaction sent from redeemer
 Release (Ethereum), by the user or any relayer
   require ticket_root[block_id] finalised, registered, not frozen, within the release cap
   MerklePath(K) → ticket_root[block_id];  require !spent[K];  spent[K] = true
-  require total_released[token] + denom ≤ redeemed[token]           // inline supply check (EV4)
+  require total_released[token] + denom ≤ total_redeemed[token]           // inline supply check (EV4)
   pay denom − fixed relayer fee to eth_dest
 ```
 
@@ -221,7 +221,7 @@ Checkpoint{b}       anyone; a public transaction declaring block_window(b..b+1)
   state_at[b] = H(ticket_root ‖ total_redeemed[·] ‖ freeze_flags)    (write-once)
 
 Signed message      msg = H("lez/bridge-state/v1" ‖ zone_id ‖ bridge_program ‖ config_id ‖ block_id ‖ state)
-                    signed by a threshold t of the key set, only for checkpointed blocks final on Bedrock
+                    signed by a threshold m of the key set, only for checkpointed blocks final on Bedrock
 
 Vault               attest(state, proof)      Groth16 of the threshold check (RISC Zero guest, audited verifier, pinned)
                                               → candidate[block_id]
@@ -233,7 +233,7 @@ LEZ                 Fault{msg, sig, signer}            msg's state ≠ state_at[
                     FalseDispute{dispute, sig, signer} vetoed state = state_at[block_id] → burn the vetoer's bonds
 ```
 
-- **Bonds.** LEZ's `sequencer_stake` can't slash on evidence: a slash "carries no proof the offence happened" and needs a two-thirds vote (`lez/programs/sequencer_stake/core/src/lib.rs:312–321`). So each signer bonds wrapped tokens per registered token, with bond ≥ release cap over the release delay ÷ t. A false state costs its signers at least what it could release, and burning the bonds takes that value back out of the wrapped supply, restoring the backing. A newly registered token's releases finalise only once enough signers hold bonds in it.
+- **Bonds.** LEZ's `sequencer_stake` can't slash on evidence: a slash "carries no proof the offence happened" and needs a two-thirds vote (`lez/programs/sequencer_stake/core/src/lib.rs:312–321`). So each signer bonds wrapped tokens per registered token, with bond ≥ release cap over the release delay ÷ m. A false state costs its signers at least what it could release, and burning the bonds takes that value back out of the wrapped supply, restoring the backing. A newly registered token's releases finalise only once enough signers hold bonds in it.
 - **Candidate window and minority veto.** Ethereum can't tell a false state from a true one, so each signed state waits. During the window one honest signer stops a false state with no admin; a veto of a true state is provable on LEZ and slashed; two conflicting signed states freeze releases (EV5). If every signer colludes, the release cap bounds the loss and the bonds restore it. A per-token release delay, set by the admin, can be added on top of the window (Soft #3).
 - **Key-set changes (Sec #8).** The vault accepts a state signed by a threshold of the key set it tracks, and a new key set only through a handoff signed by a threshold of the current one. That rule is fixed at deployment, as Caisson follows sync-committee handoffs under a fixed rule.
 - **Path (a)** uses the same message, vault, bonds and fault proofs with a different key set; anyone may join by bonding.
@@ -370,7 +370,7 @@ Measured on a LEZ v0.4 devnet with real proofs (Apple M3 Pro, 18 GB, CPU proving
 | P7 | Ethereum state | | One 32-byte slot per deposit (two if fuelled), one per release, one per batch: about 64 MB of slot values at 1M deposits and 1M releases, 640 MB at 10M (estimated) |
 | P7 | LEZ state | | One nullifier PDA per claim and per Redeem, burn and ticket leaves, one checkpoint per signed block; Caisson records 226 B each, 145 KB a year; storage gas is charged on transaction bytes. Account sizes measured in M3 |
 
-GPU proving cut Caisson's update proof from 1,107 s to 30 s (RTX 4090); which laptop GPUs RISC Zero supports is checked in M0.
+GPU proving cut Caisson's update proof from 1,107 s on an M3 Max CPU to 30 s on an RTX 4090; which laptop GPUs RISC Zero supports is checked in M0.
 
 #### 11. Dependencies
 
@@ -426,7 +426,7 @@ Each row names where the design meets the requirement, the test that will show i
 | S1 | | Deployed on a public Ethereum testnet and LEZ testnet 0.4 | M4 | Open: testnet 0.4 isn't live |
 | S2, S3 | §9 | Linux and macOS builds; the release action | M4 | Designed |
 | S4 | below | Decision log | M0 onward | Seeded below |
-| Sec #1 | M5 | External audit of the vault, the bridge program and the test plan; findings remediated, report published | M5 | Planned |
+| Sec #1 | | External audit of the vault, the bridge program and the test plan; findings remediated, report published | M5 | Planned |
 | Sec #2, #3 | §3, §4, §8 | Adversarial suite; redirect and overcharge refused | M1–M3 | Designed |
 | Sec #4 | §7 | Loss in each window stays within the caps | M1 | Designed; cap values set in M0 |
 | Sec #7 | §8 | Trust document | M4 | Designed |
@@ -492,6 +492,8 @@ At no extra cost:
 - **LEZ releases:** rebuilt and redeployed on each testnet release, with the benchmarks and the e2e suite re-run; a migration plan before any change the deployed version can't follow.
 - **Ethereum forks:** tracked through Caisson; bridge-side changes published before activation.
 - **Integrations:** answers to the DEX, lending and stablecoin teams that consume wrapped assets.
+- **Public issues** answered on GitHub.
+- **Handover:** MIT and Apache-2.0, a reproducible build and the decision log kept current.
 
 **Monthly recurring cost, if opted in to run the testnet services (a relayer, a fuel operator, a batch prover and, under path (a), an attestor, each with a public uptime log):** $1,200 a month, sized for testnet traffic; proving capacity beyond that is added at cost.
 
